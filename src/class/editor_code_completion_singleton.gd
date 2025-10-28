@@ -1,10 +1,19 @@
 extends Singleton.RefCount
 #! remote
+#! import
 
 const SCRIPT = preload("res://addons/code_completions/src/class/editor_code_completion_singleton.gd") #! ignore-remote
 
 const UClassDetail = preload("res://addons/addon_lib/brohd/alib_editor/utils/src/u_class_detail.gd")
 const USort = preload("res://addons/addon_lib/brohd/alib_runtime/utils/src/u_sort.gd")
+const UString = preload("res://addons/addon_lib/brohd/alib_runtime/utils/src/u_string.gd")
+const GlobalChecker = preload("res://addons/addon_lib/brohd/alib_runtime/misc/global_checker.gd")
+const VariantChecker = preload("res://addons/addon_lib/brohd/alib_runtime/misc/variant_checker.gd")
+
+const DataAccessSearch = preload("res://addons/code_completions/src/class/data_access_search.gd")
+const CacheHelper = DataAccessSearch.CacheHelper
+
+const GDScriptParser = preload("res://addons/code_completions/src/class/gd_script_parser.gd")
 
 static func get_singleton_name() -> String:
 	return "EditorCodeCompletion"
@@ -26,12 +35,50 @@ func unregister_completion(completion):
 static func instance_valid():
 	return _instance_valid(SCRIPT)
 
+static func call_on_ready(callable:Callable, printerr:=false) -> void:
+	_call_on_ready(SCRIPT, callable, printerr)
+
+enum State {
+	NONE,
+	COMMENT,
+	STRING,
+	ASSIGNMENT,
+	FUNC_ARGS,
+	MEMBER_ACCESS,
+	SCRIPT_BODY,
+}
+
 enum TagLocation {
 	START,
 	END,
 	ANY,
 }
 
+enum PersistentCache {
+	TAGS,
+	GLOBAL_ACCESS_PATHS,
+}
+
+enum ScriptCache {
+	STRING_MAPS,
+	#SCRIPT_PRELOADS,
+}
+
+enum CompletionCache {
+	STATE,
+	CARET_IN_FUNC_CALL,
+	FUNC_CALL,
+	ASSIGNMENT,
+	WORD_BEFORE_CARET,
+	CURRENT_SCOPE_VARS,
+}
+
+var data_access_search:DataAccessSearch
+var gdscript_parser:GDScriptParser
+
+var hide_private_members:=false
+
+var _current_script:GDScript
 var _current_code_edit:CodeEdit
 var _sort_queued:= false
 
@@ -41,12 +88,13 @@ var peristent_cache:Dictionary = {}
 var script_cache:Dictionary = {}
 var completion_cache:Dictionary = {}
 
-var last_caret_line:= -1
+var current_state:State = State.NONE
 
 var assignment_regex:RegEx
 
 func _init(plugin) -> void:
 	_singleton_init()
+	_init_set_settings()
 
 func _ready() -> void:
 	await get_tree().create_timer(1).timeout
@@ -55,27 +103,64 @@ func _ready() -> void:
 
 
 func _singleton_init():
-	if not peristent_cache.has("tags"):
-		peristent_cache["tags"] = {}
-	if not peristent_cache.has("preload_typed_vars"):
-		peristent_cache["preload_typed_vars"] = {}
+	_clear_cache()
+	data_access_search = DataAccessSearch.new()
+	gdscript_parser = GDScriptParser.new()
 
+func clear_cache():
+	_clear_cache()
+	if is_inside_tree():
+		sort_completions()
+
+func _clear_cache():
+	peristent_cache.clear()
+	script_cache.clear()
+	completion_cache.clear()
+	
+	peristent_cache[PersistentCache.TAGS] = {}
+	peristent_cache[PersistentCache.GLOBAL_ACCESS_PATHS] = {}
+	
+	script_cache[ScriptCache.STRING_MAPS] = {}
+
+
+func _init_set_settings():
+	var editor_settings = EditorInterface.get_editor_settings()
+	if not editor_settings.has_setting(EditorSet.HIDE_PRIVATE_PROP_SETTING):
+		editor_settings.set_setting(EditorSet.HIDE_PRIVATE_PROP_SETTING, false)
+	if not editor_settings.has_setting(EditorSet.GLOBAL_CHECK_SETTING):
+		editor_settings.set_setting(EditorSet.GLOBAL_CHECK_SETTING, DataAccessSearch.GlobalCheck.GLOBAL)
+	if not editor_settings.has_setting(EditorSet.SCRIPT_ALIAS_SETTING):
+		editor_settings.set_setting(EditorSet.SCRIPT_ALIAS_SETTING, DataAccessSearch.ScriptAlias.INHERITED)
+	
+	editor_settings.add_property_info(EditorSet.GLOBAL_CHECK_INFO)
+	editor_settings.add_property_info(EditorSet.SCRIPT_ALIAS_INFO)
+	
+	_set_settings()
+	editor_settings.settings_changed.connect(_set_settings)
+
+func _set_settings():
+	var editor_settings = EditorInterface.get_editor_settings()
+	
+	hide_private_members = editor_settings.get_setting(EditorSet.HIDE_PRIVATE_PROP_SETTING)
+	data_access_search.set_global_check_setting(editor_settings.get_setting(EditorSet.GLOBAL_CHECK_SETTING))
+	data_access_search.set_script_alias_setting(editor_settings.get_setting(EditorSet.SCRIPT_ALIAS_SETTING))
+	
 
 func register_tag(prefix:String, tag:String, location:TagLocation=TagLocation.ANY):
-	if not peristent_cache.tags.has(prefix):
-		peristent_cache.tags[prefix] = {}
+	if not peristent_cache[PersistentCache.TAGS].has(prefix):
+		peristent_cache[PersistentCache.TAGS][prefix] = {}
 	
-	if not peristent_cache.tags[prefix].has(tag):
-		peristent_cache.tags[prefix][tag] = location
+	if not peristent_cache[PersistentCache.TAGS][prefix].has(tag):
+		peristent_cache[PersistentCache.TAGS][prefix][tag] = location
 	else:
 		print("Tag already registered: %s %s" % [prefix, tag])
 
 func unregister_tag(prefix:String, tag:String):
-	if not peristent_cache.tags.has(prefix):
-		peristent_cache.tags[prefix] = {}
+	if not peristent_cache[PersistentCache.TAGS].has(prefix):
+		peristent_cache[PersistentCache.TAGS][prefix] = {}
 	
-	if peristent_cache.tags[prefix].has(tag):
-		peristent_cache.tags[prefix].erase(tag)
+	if peristent_cache[PersistentCache.TAGS][prefix].has(tag):
+		peristent_cache[PersistentCache.TAGS][prefix].erase(tag)
 	else:
 		print("Tag not present: %s %s" % [prefix, tag])
 
@@ -83,6 +168,7 @@ func unregister_tag(prefix:String, tag:String):
 func code_completion_added():
 	sort_completions()
 
+const TimeFunction = ALibRuntime.Utils.UProfile.TimeFunction
 
 func sort_completions():
 	if _sort_queued:
@@ -106,78 +192,123 @@ func sort_completions():
 
 func _connect_editor():
 	EditorInterface.get_script_editor().editor_script_changed.connect(_set_code_edit)
-	EditorInterface.get_resource_filesystem().filesystem_changed.connect(_get_preload_typed_vars_fs_changed)
+	EditorInterface.get_resource_filesystem().filesystem_changed.connect(_on_file_system_changed)
 
 func _disconnect_editor():
 	EditorInterface.get_script_editor().editor_script_changed.disconnect(_set_code_edit)
-	EditorInterface.get_resource_filesystem().filesystem_changed.disconnect(_get_preload_typed_vars_fs_changed)
+	EditorInterface.get_resource_filesystem().filesystem_changed.disconnect(_on_file_system_changed)
 
 func _set_code_edit(script):
 	if is_instance_valid(_current_code_edit):
 		if _current_code_edit.code_completion_requested.is_connected(_on_code_completion_requested):
 			_current_code_edit.code_completion_requested.disconnect(_on_code_completion_requested)
+	
 	var current_editor = EditorInterface.get_script_editor().get_current_editor()
 	if not is_instance_valid(current_editor):
 		return
 	_current_code_edit = current_editor.get_base_editor()
+	
 	if is_instance_valid(_current_code_edit):
 		if not _current_code_edit.code_completion_requested.is_connected(_on_code_completion_requested):
 			_current_code_edit.code_completion_requested.connect(_on_code_completion_requested.bind(_current_code_edit))
 	
 	if script != null:
 		_on_editor_script_changed(script)
+		_current_script = script
+
 
 
 func _on_editor_script_changed(script):
-	if script != null:
-		get_preload_typed_vars(script)
-	
-	last_caret_line = -1
+	_prep_script(script)
+
+func _on_file_system_changed():
+	var current_script = _get_current_script()
+	_prep_script(current_script)
+
+func _prep_script(script):
 	script_cache.clear()
-	script_cache["local_vars"] = {}
+	script_cache[ScriptCache.STRING_MAPS] = {}
+	
+	if script != null:
+		gdscript_parser.on_script_changed(script)
 	
 	for editor_code_completion in code_completions.keys():
 		editor_code_completion._on_editor_script_changed(script)
 
 
 func _on_code_completion_requested(script_editor:CodeEdit) -> void:
-	var current_caret_line = script_editor.get_caret_line()
-	if current_caret_line != last_caret_line:
-		last_caret_line = current_caret_line
-		var current_func_block = _scan_current_func_block_for_local_vars()
-		script_cache["current_func"] = current_func_block
-	
 	completion_cache.clear()
+	
+	print("^&^&^&^&^")
+	
+	var t_pre = TimeFunction.new("PreRequest", 1)
+	_pre_request_checks(script_editor)
+	print(State.keys()[current_state])
+	
+	
 	
 	var has_tag = _tag_completion(script_editor)
 	if has_tag:
 		return
+	t_pre.stop()
 	
 	for editor_code_completion in code_completions.keys():
+		var t = TimeFunction.new(str(editor_code_completion.get_script().resource_path.get_file()), TimeFunction.TimeScale.USEC)
 		var handled = editor_code_completion._on_code_completion_requested(script_editor)
+		t.stop()
 		if handled:
 			return
+	
+	var t = TimeFunction.new("Hide vars", TimeFunction.TimeScale.USEC)
+	add_code_completion_options(script_editor)
+	#t.stop()
+
+
+func _pre_request_checks(script_editor:CodeEdit):
+	var current_caret_line = script_editor.get_caret_line()
+	var current_caret_col = script_editor.get_caret_column()
+	var current_line_text:String = script_editor.get_line(current_caret_line)
+	
+	#gdscript_parser.on_completion_requested()
+	
+	current_state = State.NONE
+	if is_index_in_string(current_caret_col, current_caret_line, script_editor):
+		current_state = State.STRING
+	elif is_index_in_comment(current_caret_col, current_caret_line, script_editor):
+		current_state = State.COMMENT
+	elif get_current_func() == GDScriptParser._Keys.CLASS_BODY:
+		current_state = State.SCRIPT_BODY
+	elif get_word_before_cursor().find(".") > -1:
+		current_state = State.MEMBER_ACCESS
+	elif _in_func_call_check(current_line_text, current_caret_col):
+		current_state = State.FUNC_ARGS
+	elif _get_assignment_at_cursor(current_line_text, current_caret_col) != null:
+		current_state = State.ASSIGNMENT
+	
+	gdscript_parser.on_completion_requested()
+	
 
 
 func _tag_completion(script_editor:CodeEdit):
+	if current_state != State.COMMENT:
+		return false
+	
 	var current_line = script_editor.get_caret_line()
 	var caret_col = script_editor.get_caret_column()
 	var current_line_text = script_editor.get_line(current_line)
-	var tags = peristent_cache.tags.keys()
+	var tags = peristent_cache[PersistentCache.TAGS].keys()
 	if tags.is_empty():
 		return false
+	var string_map = get_string_map(current_line_text)
 	var tag_present = ""
 	var tag_idx = -1
 	for tag in tags:
-		tag_idx = current_line_text.find(tag)
+		tag_idx = UString.string_safe_rfind(current_line_text, tag, caret_col, string_map.string_mask)
 		if tag_idx > -1:
 			tag_present = tag
 			break
 	if tag_idx == -1:
 		return false
-	
-	if not string_safe_is_index_after_string(tag_present, current_line_text, caret_col):
-		return
 	
 	var stripped = current_line_text.substr(tag_idx).strip_edges()
 	var parts = stripped.split(" ", false)
@@ -186,7 +317,7 @@ func _tag_completion(script_editor:CodeEdit):
 		return false
 	
 	var icon = EditorInterface.get_editor_theme().get_icon("Script", "EditorIcons")
-	var declared_tag_members = peristent_cache.tags.get(tag_present, {})
+	var declared_tag_members = peristent_cache[PersistentCache.TAGS].get(tag_present, {})
 	for tag in declared_tag_members.keys():
 		var location = declared_tag_members[tag]
 		if location == TagLocation.START and tag_idx > 0:
@@ -198,303 +329,409 @@ func _tag_completion(script_editor:CodeEdit):
 	return true
 
 
-const TimeFunction = ALibRuntime.Utils.UProfile.TimeFunction
 
-func _get_preload_typed_vars_fs_changed():
-	var current_script = EditorInterface.get_script_editor().get_current_script()
-	get_preload_typed_vars(current_script)
-
-func get_preload_typed_vars(top_script:GDScript):
-	#var t = TimeFunction.new("Get Preloads", true, null, TimeFunction.TimeScale.USEC)
-	
-	var top_script_path = top_script.resource_path
-	var current_script = top_script
-	
-	var preloads = {}
-	var scripts = []
-	while current_script != null:
-		scripts.append(current_script)
-		
-		var constants = UClassDetail.script_get_all_constants(current_script)
-		for c in constants:
-			var val = constants.get(c)
-			if val is GDScript:
-				if val.resource_path != "":
-					preloads[c] = val
-		
-		current_script = current_script.get_base_script()
-	
-	var preloaded_vars_dict = {"preloads": preloads}
-	for script in scripts:
-		var preloaded_vars = _map_script_preload_vars(script, preloads)
-		preloaded_vars_dict.merge(preloaded_vars)
-	
-	peristent_cache["preload_typed_vars"][top_script_path] = preloaded_vars_dict
-	
-	#t.stop()
-
-
-func _map_script_preload_vars(script:GDScript, preloads_dict:Dictionary):
-	var preload_names = preloads_dict.keys()
-	var var_type_dict = {}
-	
-	var lines = script.source_code.split("\n")
-	for line_text in lines:
-		if not line_text.begins_with("var "):
-			continue
-		
-		var type = _get_var_type_in_line(line_text)
-		if not type:
-			continue
-		if not type in preload_names:
-			continue
-		var nm = _get_var_name_in_line(line_text)
-		if not nm:
-			continue
-		var_type_dict[nm] = type
-	
-	return var_type_dict
-
-func _get_var_name_in_line(line_text:String):
-	var var_dec = line_text.get_slice("var ", 1)
-	var var_nm = var_dec.get_slice(":", 0).strip_edges()
-	if var_nm.is_valid_ascii_identifier():
-		return var_nm
-
-func _get_var_type_in_line(line_text:String):
-	if line_text.find(":") == -1:
-		return
-	var var_dec = line_text.get_slice("var ", 1)
-	return _get_type_hint(var_dec)
-
-
-func get_func_name_of_line(script_editor:CodeEdit, start_idx:int):
-	var current_line = start_idx
-	while current_line > 0:
-		current_line -= 1
-		var func_line_text = script_editor.get_line(current_line)
-		if func_line_text == "":
-			return ""
-		var stripped = func_line_text.strip_edges()
-		if not (stripped.begins_with("func ") and stripped.begins_with("static func ")):
-			continue
-		var func_name = func_line_text.get_slice("func ", 1).get_slice("(", 0)
-		return func_name
-
-
-func _scan_current_func_block_for_local_vars():
-	#var t = ALibRuntime.Utils.UProfile.TimeFunction.new("SCAN BLOCK", true, null, 1)
-	var script_editor = _get_code_edit()
-	var current_script = EditorInterface.get_script_editor().get_current_script()
-	var current_line = script_editor.get_caret_line()
-	var func_name:String = ""
-	while current_line > 0:
-		var func_line_text:String = script_editor.get_line(current_line)
-		var stripped = func_line_text.strip_edges()
-		var begins_with_func = (stripped.begins_with("func ") or stripped.begins_with("static func "))
-		if func_line_text != "" and not func_line_text.begins_with("\t") and not begins_with_func:
-			return func_name
-		
-		if not begins_with_func:
-			current_line -= 1
-			continue
-		
-		func_name = func_line_text.get_slice("func ", 1).get_slice("(", 0)
-		break
-	
-	if func_name == "":
-		return func_name
-	if not script_cache.has("local_vars"):
-		script_cache["local_vars"] = {}
-	if script_cache.local_vars.has(func_name):
-		script_cache.local_vars.get(func_name).clear()
-	var func_line = current_line
-	var script_length = script_editor.get_line_count()
-	while true:
-		#current_line += 1 # at beginning to exclude found func
-		if current_line > script_length:
-			return func_name
-		var line_text:String = script_editor.get_line(current_line)
-		var stripped = line_text.strip_edges()
-		if stripped.begins_with("func ") or stripped.begins_with("static func "):
-			if current_line != func_line:
-				#t.stop()
-				return func_name
-			else:
-				_get_local_var_in_func(line_text, func_name, current_script)
-				current_line += 1
-				continue
-			
-		if line_text != "" and not line_text.begins_with("\t"):
-			#t.stop()
-			return func_name
-		
-		_get_local_var_in_line(line_text, func_name)
-		current_line += 1
-	#t.stop()
-	return func_name
-
-func _get_local_var_in_line(line_text:String, func_name:String):
-	if line_text.find("\tvar ") == -1:
-		return
-	var type = _get_var_type_in_line(line_text)
-	if not type:
-		return
-	var var_nm = _get_var_name_in_line(line_text)
-	if not var_nm:
-		return
-	
-	if not script_cache.local_vars.has(func_name):
-		script_cache.local_vars[func_name] = {}
-	script_cache.local_vars[func_name][var_nm] = type
-
-
-func _get_local_var_in_func(line_text:String, func_name:String, script):
-	var member_info = UClassDetail.get_member_info_by_path(script, func_name)
-	if member_info == null:
-		return
-	
-	var arg_array = member_info.get("args")
-	
-	for arg in arg_array:
-		var var_nm = arg.get("name")
-		var _class = arg.get("class_name", "")
-		var type = arg.get("type")
-		var type_hint = _class
-		if _class == "":
-			type_hint = type_string(type)
-		
-		if not script_cache.local_vars.has(func_name):
-			script_cache.local_vars[func_name] = {}
-		script_cache.local_vars[func_name][var_nm] = type_hint
-
-
-func _get_type_hint(var_str:String): # for local vars
-	if var_str.find(":") == -1:
-		return
-	var type_hint = var_str.get_slice(":", 1).strip_edges()
-	var eq_idx = type_hint.find("=")
-	if eq_idx == 0:
-		type_hint = type_hint.get_slice("=", 1).strip_edges()
-	elif eq_idx > -1:
-		type_hint = type_hint.get_slice("=", 0).strip_edges()
-	elif type_hint.find(" ") > -1:
-		type_hint = type_hint.get_slice(" ", 0).strip_edges()
-	
-	if type_hint.find(".new(") > -1:
-		type_hint = type_hint.substr(0, type_hint.rfind(".new("))
-	elif type_hint.ends_with(")"):
-		var method_call = type_hint.get_slice("(", 0)
-		var current_script = EditorInterface.get_script_editor().get_current_script()
-		var member_data = UClassDetail.get_member_info_by_path(current_script, method_call)
-		if member_data == null:
-			return
-		var _return = member_data.get("return", {})
-		var _class_name = _return.get("class_name", "")
-		type_hint = _class_name
-	
-	return type_hint
-
-func get_func_call_data(current_line_text:String):
-	if completion_cache.has("func_call"):
-		return completion_cache.get("func_call")
-	var script_editor = _get_code_edit()
-	if not is_instance_valid(script_editor):
-		return {}
+func _hide_private_completions(script_editor:CodeEdit, completions:Array):
 	var caret_col = script_editor.get_caret_column()
+	if caret_col > 0:
+		var word = script_editor.get_word_at_pos(script_editor.get_caret_draw_pos())
+		if word.begins_with("_"):
+			return completions
 	
-	var data = {}
-	var open_i = current_line_text.rfind("(", caret_col)
-	var closed_i = current_line_text.find(")", caret_col)
-	if not (open_i != -1 and open_i < caret_col and closed_i != -1 and closed_i >= caret_col):
-		return {}
+	var valid = []
+	for option in completions:
+		var display_text = option.get("display_text")
+		if display_text.begins_with("_"):
+			continue
+		valid.append(option)
 	
-	var func_name = current_line_text.substr(0, open_i)
-	if func_name.find(" ") > -1:
-		func_name = func_name.get_slice(" ", func_name.get_slice_count(" ") - 1)
-	func_name = func_name.strip_edges()
+	return valid
+
+func add_code_completion_options(script_editor:CodeEdit, options=null, hide_private=null):
 	
-	if open_i == 0 or not func_name.replace(".", "_").is_valid_ascii_identifier(): # should stop false 
-		return {}
+	if hide_private == null:
+		hide_private = hide_private_members
+	if options == null:
+		options = script_editor.get_code_completion_options()
 	
-	var current_args = current_line_text.substr(open_i, closed_i)
-	
-	var current_arg_index = 0
-	var adjusted_caret_col = caret_col - open_i
-	while adjusted_caret_col >= 0:
-		var char = current_args[adjusted_caret_col]
-		if char == ",":
-			current_arg_index += 1
-		adjusted_caret_col -= 1
-	
-	current_args = current_args.trim_prefix("(").trim_suffix(")")#.strip_edges()
-	if current_args.find(",") > -1:
-		current_args = current_args.split(",", false)
-	else:
-		if current_args != "":
-			current_args = [current_args]
-		else:
-			current_args = []
-	for i in range(current_args.size()):
-		var arg = current_args[i]
-		arg = arg.strip_edges()
-		current_args[i] = arg
-	
-	data["name"] = func_name
-	data["args"] = current_args
-	data["current_arg_index"] = current_arg_index
-	completion_cache["func_call"] = data
-	return data
+	if hide_private:
+		options = _hide_private_completions(script_editor, options)
+	for o in options:
+		script_editor.add_code_completion_option(o.kind, o.display_text, o.insert_text, o.font_color, o.icon, o.default_value)
+	script_editor.update_code_completion_options(false)
 
 
 
-func get_assignment_at_cursor(line_text: String, caret_col: int):
-	if not is_instance_valid(assignment_regex):
+#region API
+
+func get_state() -> State:
+	return current_state
+
+func get_current_class() -> String:
+	return gdscript_parser.current_class
+
+func get_current_func() -> String:
+	return gdscript_parser.current_func
+
+
+
+func get_func_args_and_return(_class:String, _func:String):
+	return gdscript_parser.get_func_args_and_return(_class, _func)
+
+func get_func_args(_class:String, _func:String):
+	return gdscript_parser.get_func_args(_class, _func)
+
+func get_func_return(_class:String, _func:String):
+	return gdscript_parser.get_func_return(_class, _func)
+
+func get_script_var_map() -> Dictionary:
+	return gdscript_parser.script_data
+
+func get_script_body_vars(_class:String="") -> Dictionary:
+	var map = get_script_var_map().get(_class)
+	return map.get(GDScriptParser._Keys.CLASS_BODY)
+
+func get_script_constants(_class:String=""):
+	return gdscript_parser.get_script_constants(_class)
+
+
+func map_get_var_type(var_name:String):
+	return gdscript_parser.map_get_var_type(var_name)
+
+
+func get_script_alias(access_path:String, data=null):
+	return gdscript_parser.data_access_search.check_for_script_alias(access_path, data)
+
+
+## For paths starting with "res://": Gets the enum data of the passed class, checks if it is present in the current script,
+## if not, check's if any global classes have it preloaded.
+func get_access_path(data,
+					member_hints:=["const"],
+					class_hint:="",
+					script_alias_set:=DataAccessSearch.ScriptAlias.INHERITED,
+					global_check_set:=DataAccessSearch.GlobalCheck.GLOBAL):
+	
+	return gdscript_parser.get_access_path(data, member_hints, class_hint, script_alias_set, global_check_set)
+
+func property_info_to_type(property_info) -> String:
+	var type = gdscript_parser.property_info_to_type(property_info)
+	return type
+
+
+#endregion
+
+func get_assignment_at_cursor():
+	var script_editor = _get_code_edit()
+	var caret_col = script_editor.get_caret_column()
+	var line_text = script_editor.get_line(script_editor.get_caret_line())
+	var assignment_data = _get_assignment_at_cursor(line_text, caret_col)
+	if assignment_data == null:
+		return null
+	var left = assignment_data.get("left", "")
+	var left_typed = map_get_var_type(left)
+	assignment_data["left_typed"] = left_typed
+	return assignment_data
+
+
+func _get_assignment_at_cursor(line_text: String, caret_col: int):
+	if completion_cache.has(CompletionCache.ASSIGNMENT):
+		return completion_cache[CompletionCache.ASSIGNMENT]
+	#if line_text.find("=") == -1:
+		#completion_cache[CompletionCache.ASSIGNMENT] = null
+		#return null
+	if line_text.rfind("=", caret_col) == -1: # alternative to above, if not on right side no need to do
+		completion_cache[CompletionCache.ASSIGNMENT] = null
+		return null
+	var t = TimeFunction.new("Get Assignment", TimeFunction.TimeScale.USEC)
+	
+	if not is_instance_valid(assignment_regex):# or true: # ALERT remove true
 		assignment_regex = RegEx.new()
-		# LHS (Group 1): Optional 'var', the variable name, and an optional type hint.
-		# Operator (Group 2): Handles '==', ':=', and '='.
-		# RHS (Group 3): Everything up to the next semicolon.
-		var pattern = "((?:var\\s+)?[\\w\\d_.]+(?:\\s*:\\s*[\\w\\d_]+)?)\\s*(==|:=|=)\\s*(.*?)(?=\\s+(?:or|and)\\s+|;|:|$)"
+		#var pattern = "((?:var\\s+)?[\\w\\d_.():]+)\\s*(==|:[s+]=|=|![s+]=)"
+		#var pattern = r"((?:var\s+)?[\w.()]+(?:\s*:\s*[\w.]+)?)\s*(=\s*=|:\s*=|!\s*=|=)(.*?)(?=\s*(?:or|and|&&|\|\|)|$)"
+		var pattern = r"((?:var\s+)?[\w.]+(?:\(.*?\))?(?:\s*:\s*[\w.]+)?)\s*(=\s*=|:\s*=|!\s*=|=)(.*?)(?=\s*(?:or|and|&&|\|\|)|$)" # WORKING
+		
 		assignment_regex.compile(pattern)
 	
 	var matches = assignment_regex.search_all(line_text)
-	if matches.is_empty():
-		return null
-		
-	for i in range(matches.size() - 1, -1, -1):
-		var _match = matches[i]
-		if _match.get_start() < caret_col:
-			var lhs = _match.get_string(1).strip_edges()
-			var operator = _match.get_string(2).strip_edges()
-			var rhs = _match.get_string(3).strip_edges()
-			return { "lhs": lhs, "operator": operator, "rhs": rhs }
+	if not matches.is_empty():
+		for i in range(matches.size() - 1, -1, -1):
+			var _match = matches[i] as RegExMatch
+			if _match.get_start(2) <= caret_col:
+				var lhs = _match.get_string(1).strip_edges()
+				var last_char_idx = _match.get_end(1) - 1
+				#if not lhs.begins_with("var "): # WHY IS THIS HERE CAUSING ISSUES
+					#lhs = _parse_identifier_at_position(line_text, last_char_idx, get_string_map(line_text))
+				var operator = _match.get_string(2).strip_edges()
+				
+				var rhs = _match.get_string(3).strip_edges()
+				
+				#var rhs = ""
+				#if i + 1 < matches.size(): # If there's a next match, its LHS is our RHS.
+					#var next_match = matches[i+1] as RegExMatch
+					#rhs = next_match.get_string(1).strip_edges()
+				#else: # If this is the last match, the RHS is the rest of the line.
+					#var rhs_start_pos = _match.get_end() # Position after operator + space
+					#rhs = line_text.substr(rhs_start_pos).strip_edges()
+				
+				#var left_type = _map_get_var_type(lhs)
+				
+				var data = {
+					"left": lhs,
+					#"left_type": left_type,
+					"operator": operator,
+					"right": rhs }
+				print(data)
+				print("RHS, ", _match.get_string(3).strip_edges())
+				completion_cache[CompletionCache.ASSIGNMENT] = data
+				t.stop()
+				return data
+	
+	completion_cache[CompletionCache.ASSIGNMENT] = null
 	return null
 
-static func string_safe_is_index_after_string(str_to_find:String, line_text:String, index_to_check:int):
-	var found_index = line_text.rfind(str_to_find, index_to_check)
-	if found_index == -1:
+
+#region Func Call
+
+func _in_func_call_check(current_line_text:String, current_caret_col:int):
+	var stripped = current_line_text.strip_edges()
+	var in_declar = stripped.begins_with("func") or stripped.begins_with("static func")
+	var func_data = _get_func_call_data(current_line_text, current_caret_col)
+	print(func_data)
+	if func_data.is_empty() or in_declar:
+		completion_cache[CompletionCache.CARET_IN_FUNC_CALL] = false
+		return false
+	var arg_text = func_data["args"][func_data["current_arg_index"]]
+	if arg_text.rfind("=", current_caret_col) > -1:
+		completion_cache[CompletionCache.CARET_IN_FUNC_CALL] = false
 		return false
 	
-	var in_string = false
-	var string_type = null
-	var index = 0
-	while index < found_index:
-		var char = line_text[index]
-		index += 1
-		if char == "#" and not in_string:
-			break
-		if char == '"' or char == "'":
-			if in_string:
-				if char == string_type:
-					in_string = false
-				
-			else:
-				string_type = char
-				in_string = true
+	completion_cache[CompletionCache.CARET_IN_FUNC_CALL] = true
+	return true
+
+func get_func_call_data():
+	var script_editor = _get_code_edit()
+	var caret_col = script_editor.get_caret_column()
+	var current_line_text = script_editor.get_line(script_editor.get_caret_line())
+	var func_call_data = _get_func_call_data(current_line_text, caret_col)
+	if func_call_data == null:
+		return null
+	var full_call = func_call_data.get("full_call", "")
+	var full_call_typed = map_get_var_type(full_call + "()")
+	full_call_typed = full_call_typed.trim_suffix("()")
+	func_call_data["full_call_typed"] = full_call_typed
+	return func_call_data
+
+func _get_func_call_data(current_line_text:String, caret_col:int):
+	var t = TimeFunction.new("NEW FUNC CALL DATA", TimeFunction.TimeScale.USEC)
+	if completion_cache.has(CompletionCache.FUNC_CALL):
+		return completion_cache.get(CompletionCache.FUNC_CALL)
 	
-	return not in_string # if in string, not a comment
+	if current_line_text.rfind("(", caret_col) == -1:
+		return {} # if not in a bracket no need to check
+	
+	var string_map = get_string_map(current_line_text)
+	var bracket_map = string_map.bracket_map
+	var string_indexes = string_map.string_mask
+	if string_map.has_errors or bracket_map.is_empty():
+		return {}
+	
+	var open_bracket_index = 0
+	var closed_bracket_index = current_line_text.length()
+	var bracket_map_keys = bracket_map.keys()
+	bracket_map_keys.sort()
+	for open in bracket_map_keys:
+		if open > caret_col:
+			break
+		var char = current_line_text[open]
+		if char != "(":
+			continue
+		var close = bracket_map.get(open)
+		if not (open <= caret_col and close >= caret_col):
+			continue
+		if close - open < closed_bracket_index - open_bracket_index:
+			open_bracket_index = open
+			closed_bracket_index = close
+	
+	var func_full_call = _parse_identifier_at_position(current_line_text, open_bracket_index - 1, string_map)
+	if func_full_call == "":
+		return {}
+	
+	var arg_idxs = []
+	var current_arg_index = 0
+	var count = closed_bracket_index
+	while count >= open_bracket_index:
+		count -= 1
+		if string_indexes[count] == 1:
+			continue
+		var char = current_line_text[count]
+		if char == ")" or char == "}" or char == "]":
+			count = bracket_map[count]
+		
+		if char == ",":
+			if caret_col > count:
+				current_arg_index += 1
+			arg_idxs.append(count)
+	
+	arg_idxs.reverse()
+	var arg_array = []
+	var start_index = open_bracket_index + 1
+	for i in arg_idxs:
+		var substr_length = i - start_index
+		var arg = current_line_text.substr(start_index, substr_length).strip_edges()
+		arg_array.append(arg)
+		start_index = i + 1
+	
+	var last_arg = current_line_text.substr(start_index, closed_bracket_index - start_index).strip_edges()
+	arg_array.append(last_arg)
+	
+	var data = {
+		"full_call": func_full_call,
+		"args": arg_array,
+		"current_arg_index": current_arg_index}
+	completion_cache[CompletionCache.FUNC_CALL] = data
+	t.stop()
+	return data
+
+func _parse_identifier_at_position(text:String, start_pos:int, string_map):
+	var current_pos = start_pos
+	var name_start_pos = start_pos + 1
+	var last_char = ""
+	while current_pos >= 0:
+		if string_map.string_mask[current_pos] == 1:
+			current_pos -= 1
+			continue
+		
+		var char = text[current_pos]
+		if char == ")" or char == "]" or char == "}":
+			current_pos = string_map.bracket_map.get(current_pos, current_pos)
+		
+		if not char.is_valid_ascii_identifier() and char != ".":
+			var valid = false
+			if char == ")" and last_char == ".":
+				valid = true
+			if char in UString.NUMBERS:
+				valid = true
+			
+			if not valid:
+				break
+		
+		last_char = char
+		name_start_pos = current_pos
+		current_pos -= 1
+	
+	return text.substr(name_start_pos, start_pos - name_start_pos + 1)
+
+#endregion
+
+func get_word_before_cursor():
+	if completion_cache.has(CompletionCache.WORD_BEFORE_CARET):
+		return completion_cache[CompletionCache.WORD_BEFORE_CARET]
+	var script_editor = _get_code_edit() as CodeEdit
+	var caret_col = script_editor.get_caret_column()
+	var line_text = script_editor.get_line(script_editor.get_caret_line())
+	var string_map = get_string_map(line_text)
+	var identifier = _parse_identifier_at_position(line_text, caret_col - 1, string_map)
+	print("WORD BEFORE CARET: ", identifier)
+	completion_cache[CompletionCache.WORD_BEFORE_CARET] = identifier
+	return identifier
 
 
-static func _get_code_edit():
-	if EditorInterface.get_script_editor().get_current_editor():
-		return EditorInterface.get_script_editor().get_current_editor().get_base_editor()
+func is_index_in_comment(column:int=-1, line:int=-1, code_edit=null):
+	if code_edit == null:
+		code_edit = _get_code_edit() as CodeEdit
+	if line == -1:
+		line = code_edit.get_caret_line()
+	if column == -1:
+		column = code_edit.get_caret_column()
+	return code_edit.is_in_comment(line, column) > -1
+
+func is_index_in_string(column:int=-1, line:int=-1, code_edit=null):
+	if code_edit == null:
+		code_edit = _get_code_edit() as CodeEdit
+	if line == -1:
+		line = code_edit.get_caret_line()
+	if column == -1:
+		column = code_edit.get_caret_column()
+	return code_edit.is_in_string(line, column) > -1
+
+
+
+func get_string_map(text:String, mode:UString.StringMap.Mode=UString.StringMap.Mode.FULL, print_err:=false) -> UString.StringMap:
+	if script_cache[ScriptCache.STRING_MAPS].has(text):
+		return script_cache[ScriptCache.STRING_MAPS].get(text)
+	var string_map = UString.get_string_map(text, mode, print_err)
+	script_cache[ScriptCache.STRING_MAPS][text] = string_map
+	return string_map
+
+func _get_current_script():
+	if _current_script == null:
+		_current_script = EditorInterface.get_script_editor().get_current_script()
+	return _current_script
+
+func _get_code_edit():
+	if _current_code_edit == null:
+		_current_code_edit = EditorInterface.get_script_editor().get_current_editor().get_base_editor()
+	return _current_code_edit
+
+
+
+func _store_data_in_section(section, key, value, script, data_cache:Dictionary):
+	if not data_cache.has(section):
+		data_cache[section] = {}
+	
+	if script is String:
+		script = load(script)
+	var inh_scripts = UClassDetail.script_get_inherited_script_paths(script)
+	
+	CacheHelper.store_data(key, value, data_cache)
+
+func _get_cached_data_in_section(section, key, data_cache:Dictionary):
+	if not data_cache.has(section):
+		return null
+	
+	return CacheHelper.get_cached_data(key, data_cache)
+
+
+func _get_cached_data(key, data_cache:Dictionary):
+	if not data_cache.has(key):
+		return null
+	var data = data_cache.get(key)
+	var mod_data = data.get("modified", {})
+	for path in mod_data.keys():
+		if FileAccess.get_modified_time(path) != mod_data.get(path):
+			data_cache.erase(key)
+			return null
+	return data.get("value")
+
+
+
+class EditorSet:
+	
+	# Custom
+	const HIDE_PRIVATE_PROP_SETTING = &"plugin/code_completion/property/hide_private_properties"
+	
+	const GLOBAL_CHECK_SETTING = &"plugin/code_completion/class_search/check_global_scripts"
+	const GLOBAL_CHECK_INFO = {
+	"name": GLOBAL_CHECK_SETTING,
+	"type": TYPE_INT,
+	"hint": PROPERTY_HINT_ENUM,
+	"hint_string": "Global,Namespace,Off"
+	}
+	const SCRIPT_ALIAS_SETTING = &"plugin/code_completion/class_search/script_alias"
+	const SCRIPT_ALIAS_INFO = {
+	"name": SCRIPT_ALIAS_SETTING,
+	"type": TYPE_INT,
+	"hint": PROPERTY_HINT_ENUM,
+	"hint_string": "Inherited Only,Recursive Preload,Off"
+	}
+	
+	enum GlobalCheck{ # can be removed, but uesing for test duplicated enums
+		GLOBAL,
+		NAMESPACE,
+		OFF
+	}
+	enum ScriptAlias{ # can be removed, but uesing for test duplicated enums
+		INHERITED,
+		PRELOADS,
+		OFF
+	}
+	

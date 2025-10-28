@@ -10,9 +10,6 @@ func _get_plugin_name() -> String:
 
 func _enable_plugin() -> void:
 	var ed_set = EditorInterface.get_editor_settings()
-	var enum_:NewScript3.Test
-	var node:ConnectFlags
-	
 	
 	
 	pass

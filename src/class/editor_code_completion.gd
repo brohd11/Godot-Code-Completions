@@ -2,16 +2,25 @@ class_name EditorCodeCompletion
 
 const EditorCodeCompletionSingleton = preload("res://addons/code_completions/src/class/editor_code_completion_singleton.gd")
 const UClassDetail = preload("res://addons/addon_lib/brohd/alib_editor/utils/src/u_class_detail.gd")
+const UString = preload("res://addons/addon_lib/brohd/alib_runtime/utils/src/u_string.gd")
+
+const TagLocation = EditorCodeCompletionSingleton.TagLocation
+const DataAccessSearch = EditorCodeCompletionSingleton.DataAccessSearch
+const State = EditorCodeCompletionSingleton.State
 
 var singleton:EditorCodeCompletionSingleton
 
 var _tags = {}
 
+var some_tag:TagLocation
+
+
 
 func _init() -> void:
 	var settings = _get_completion_settings()
 	singleton = EditorCodeCompletionSingleton._register_completion(self, settings)
-	_singleton_ready()
+	EditorCodeCompletionSingleton.call_on_ready(_singleton_ready)
+	
 
 func _get_completion_settings() -> Dictionary:
 	return {
@@ -22,7 +31,7 @@ func _singleton_ready() -> void:
 	pass
 
 
-func register_tag(prefix:String, tag:String, location:=EditorCodeCompletionSingleton.TagLocation.ANY):
+func register_tag(prefix:String, tag:String, location:=TagLocation.ANY):
 	singleton.register_tag(prefix, tag, location)
 	if not _tags.has(prefix):
 		_tags[prefix] = {}
@@ -42,70 +51,93 @@ func _on_editor_script_changed(script) -> void:
 func _on_code_completion_requested(script_editor:CodeEdit) -> bool:
 	return false
 
-func get_script_preload_vars(script=null, force_rebuild:=false):
-	if script == null:
-		script = EditorInterface.get_script_editor().get_current_script()
-	var path = script.resource_path
-	if not singleton.peristent_cache.preload_typed_vars.has(path) or force_rebuild:
-		singleton.get_preload_typed_vars(script)
-	return singleton.peristent_cache.preload_typed_vars.get(path, {})
-
-func get_preload_constant(preload_script_path:String, script=null):
-	var preloads = get_script_preload_vars(script).get("preloads")
-	for name in preloads.keys():
-		var const_script = preloads.get(name)
-		if const_script is not GDScript:
-			continue
-		if preload_script_path == const_script.resource_path:
-			return name
+func get_state() -> EditorCodeCompletionSingleton.State:
+	return singleton.get_state()
 
 
+func get_script_var_map() -> Dictionary:
+	return singleton.get_script_var_map()
 
-func get_local_var_type(var_name:String):
-	var type_hint = singleton.script_cache.local_vars.get(var_name, "")
-	return type_hint
+func get_current_class() -> String:
+	return singleton.get_current_class()
+
+func get_current_func() -> String:
+	return singleton.get_current_func()
+
+func get_script_body_vars(_class:String="") -> Dictionary:
+	return singleton.get_script_body_vars(_class)
+
+func get_script_body_constants(_class:String=""):
+	return singleton.get_script_constants(_class)
+
+func get_func_args(_class:String, _func_name:String) -> Dictionary:
+	return singleton.get_func_args(_class, _func_name)
+
+
+
+func get_first_var_name(var_name:String):
+	var dot_idx:= var_name.find(".")
+	if dot_idx > -1:
+		var_name = var_name.substr(0, dot_idx)
+	return var_name
+
+func convert_property_to_type(var_name:String):
+	return singleton.map_get_var_type(var_name)
+
+
+func caret_in_func_call(): # TODO can be eliminated? use state instead, the are not mutually exclusive though...
+	return singleton.completion_cache.get(singleton.CompletionCache.CARET_IN_FUNC_CALL, false)
+
+func get_func_call_data():
+	return singleton.get_func_call_data()
 
 func get_func_name_of_line(line:int):
-	return singleton.get_func_name_of_line(_get_code_edit(), line)
-
-func get_current_func_name():
-	return singleton.script_cache.get("current_func", "")
-
-func get_func_local_vars(func_name:String=""):
-	if func_name == "":
-		func_name = get_current_func_name()
-	return singleton.script_cache.local_vars.get(func_name, {})
-
-func get_func_call_data(current_line_text:String):
-	return singleton.get_func_call_data(current_line_text)
-
-func get_assignment_at_cursor(script_editor:CodeEdit=null):
-	if script_editor == null:
-		script_editor = _get_code_edit()
-	var line_text = script_editor.get_line(script_editor.get_caret_line())
-	return singleton.get_assignment_at_cursor(line_text, script_editor.get_caret_column())
-
-func sub_var_type(_name:String, var_type_dict:Dictionary):
-	var dot_idx = _name.find(".")
-	var first_word = _name
-	if dot_idx > -1:
-		first_word = _name.substr(0, _name.find("."))
-	var type
-	if first_word in var_type_dict.keys():
-		type = var_type_dict.get(first_word)
-	if type != null:
-		if dot_idx > -1:
-			return type + _name.trim_prefix(first_word)
-		else:
-			return type
-	return _name
-
-func is_caret_in_comment(line_text:String, caret_column:int):
-	var in_comment = singleton.string_safe_is_index_after_string("#", line_text, caret_column - 1)
-	return in_comment
+	return singleton.get_func_name_of_line(get_code_edit(), line)
 
 
+func get_assignment_at_cursor():
+	return singleton.get_assignment_at_cursor()
 
-static func _get_code_edit():
-	if EditorInterface.get_script_editor().get_current_editor():
-		return EditorInterface.get_script_editor().get_current_editor().get_base_editor()
+func property_info_to_type(property_info):
+	return singleton.property_info_to_type(property_info)
+
+func get_string_map(text:String):
+	return singleton.get_string_map(text)
+
+func is_index_in_comment(column:int=-1, line:int=-1, code_edit=null):
+	return singleton.is_index_in_comment(column, line, code_edit)
+
+func is_index_in_string(column:int=-1, line:int=-1, code_edit=null):
+	return singleton.is_index_in_string(column, line, code_edit)
+
+func get_word_before_cursor():
+	return singleton.get_word_before_cursor()
+
+func add_completion_options(options:Array, hide_private=null):
+	var current = get_code_edit()
+	singleton.add_code_completion_options(current, options, hide_private)
+
+func _store_data(section, key, value, script, data_cache:Dictionary):
+	singleton._store_data_in_section(section, key, value, script, data_cache)
+
+func _get_cached_data(section, key, data_cache:Dictionary):
+	return singleton._get_cached_data_in_section(section, key, data_cache)
+
+func get_member_path_by_value(data, deep:=false, member_hints:=UClassDetail._MEMBER_ARGS, breadth_first:=true):
+	var member_path = UClassDetail.script_get_member_by_value(get_current_script(), data, deep, member_hints, breadth_first)
+	if member_path != null:
+		return member_path
+	print("HADD TO DO BIG SEARCH")
+	return singleton.get_access_path(data, member_hints, "")
+
+func get_access_path(data, member_hints:=UClassDetail._MEMBER_ARGS, class_hint:=""):
+	return singleton.get_access_path(data, member_hints)
+
+func get_script_alias(access_path:String, data=null):
+	return singleton.get_script_alias(access_path, data)
+
+
+func get_current_script():
+	return singleton._current_script
+func get_code_edit():
+	return singleton._current_code_edit
