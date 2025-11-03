@@ -91,6 +91,7 @@ func _script_alias_search(script:GDScript, data, member_hints:=["const"]):
 				#return _name + "." + script_access_path
 	return null
 
+
 static func script_alias_search_static(access_path:String, data=null, deep:=false, current_script=null):
 	if current_script == null:
 		current_script = EditorInterface.get_script_editor().get_current_script()
@@ -98,7 +99,9 @@ static func script_alias_search_static(access_path:String, data=null, deep:=fals
 		data = UClassDetail.get_member_info_by_path(current_script, access_path, ["const"])
 		if data == null:
 			return access_path
-	var script_access_path = UClassDetail.script_get_member_by_value(current_script, data, deep, ["const"])
+	
+	var script_access_path = UClassDetail.script_get_member_by_value(current_script, data, deep, ["const"], true)
+	print("STATIC ALIAS SEARCH: ", access_path, " -> ", script_access_path)
 	if script_access_path != null:
 		return script_access_path
 	return null
@@ -108,6 +111,7 @@ func get_global_access_path(data, member_hints:=["const"], class_hint:=""):
 	if _data_cache != null:
 		var cached_access_path = CacheHelper.get_cached_data(data, _data_cache)
 		if cached_access_path != null:
+			printerr("NOT AN ERROR, RETURN CACHED GLOBAL: ", cached_access_path)
 			return cached_access_path
 	
 	var classes_to_check:= {}
@@ -128,7 +132,7 @@ func get_global_access_path(data, member_hints:=["const"], class_hint:=""):
 		
 		return access_path
 
-
+## Search classes for value. Returns Array [access_path, script]
 static func get_global_access_path_static(data, classes_to_check:Dictionary={}, member_hints:=["const"], class_hint:=""):
 	if classes_to_check.is_empty():
 		classes_to_check = UClassDetail.get_all_global_class_paths()

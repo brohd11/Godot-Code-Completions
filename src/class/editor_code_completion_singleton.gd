@@ -71,6 +71,7 @@ enum CompletionCache {
 	ASSIGNMENT,
 	WORD_BEFORE_CARET,
 	CURRENT_SCOPE_VARS,
+	FUNC_CALL_TYPED,
 }
 
 var data_access_search:DataAccessSearch
@@ -106,6 +107,7 @@ func _singleton_init():
 	_clear_cache()
 	data_access_search = DataAccessSearch.new()
 	gdscript_parser = GDScriptParser.new()
+	gdscript_parser.code_completion_singleton = self
 
 func clear_cache():
 	_clear_cache()
@@ -240,16 +242,15 @@ func _on_code_completion_requested(script_editor:CodeEdit) -> void:
 	completion_cache.clear()
 	
 	print("^&^&^&^&^")
-	
 	var t_pre = TimeFunction.new("PreRequest", 1)
 	_pre_request_checks(script_editor)
+	
 	print(State.keys()[current_state])
-	
-	
 	
 	var has_tag = _tag_completion(script_editor)
 	if has_tag:
 		return
+	
 	t_pre.stop()
 	
 	for editor_code_completion in code_completions.keys():
@@ -261,7 +262,7 @@ func _on_code_completion_requested(script_editor:CodeEdit) -> void:
 	
 	var t = TimeFunction.new("Hide vars", TimeFunction.TimeScale.USEC)
 	add_code_completion_options(script_editor)
-	#t.stop()
+	t.stop()
 
 
 func _pre_request_checks(script_editor:CodeEdit):
@@ -313,8 +314,11 @@ func _tag_completion(script_editor:CodeEdit):
 	var stripped = current_line_text.substr(tag_idx).strip_edges()
 	var parts = stripped.split(" ", false)
 	
-	if parts.size() > 2:
-		return false
+	if parts.size() > 1:
+		if parts.size() == 2 and get_word_before_cursor() == "":
+			return false
+		if parts.size() > 2:
+			return false
 	
 	var icon = EditorInterface.get_editor_theme().get_icon("Script", "EditorIcons")
 	var declared_tag_members = peristent_cache[PersistentCache.TAGS].get(tag_present, {})
@@ -331,11 +335,12 @@ func _tag_completion(script_editor:CodeEdit):
 
 
 func _hide_private_completions(script_editor:CodeEdit, completions:Array):
-	var caret_col = script_editor.get_caret_column()
-	if caret_col > 0:
-		var word = script_editor.get_word_at_pos(script_editor.get_caret_draw_pos())
-		if word.begins_with("_"):
-			return completions
+	if current_state != State.MEMBER_ACCESS: # only hide when accessing a member, want to see private in own class
+		return completions
+	var word_at_cursor = get_word_before_cursor()
+	var last_part = UString.get_member_access_back(word_at_cursor)
+	if last_part.begins_with("_"):
+		return completions
 	
 	var valid = []
 	for option in completions:
@@ -343,11 +348,9 @@ func _hide_private_completions(script_editor:CodeEdit, completions:Array):
 		if display_text.begins_with("_"):
 			continue
 		valid.append(option)
-	
 	return valid
 
 func add_code_completion_options(script_editor:CodeEdit, options=null, hide_private=null):
-	
 	if hide_private == null:
 		hide_private = hide_private_members
 	if options == null:
@@ -355,6 +358,7 @@ func add_code_completion_options(script_editor:CodeEdit, options=null, hide_priv
 	
 	if hide_private:
 		options = _hide_private_completions(script_editor, options)
+	
 	for o in options:
 		script_editor.add_code_completion_option(o.kind, o.display_text, o.insert_text, o.font_color, o.icon, o.default_value)
 	script_editor.update_code_completion_options(false)
@@ -372,7 +376,8 @@ func get_current_class() -> String:
 func get_current_func() -> String:
 	return gdscript_parser.current_func
 
-
+func class_has_func(_func:String, _class:String):
+	return gdscript_parser.class_has_func(_func, _class)
 
 func get_func_args_and_return(_class:String, _func:String):
 	return gdscript_parser.get_func_args_and_return(_class, _func)
@@ -393,14 +398,22 @@ func get_script_body_vars(_class:String="") -> Dictionary:
 func get_script_constants(_class:String=""):
 	return gdscript_parser.get_script_constants(_class)
 
+func get_preload_map():
+	return gdscript_parser.get_preload_map()
 
-func map_get_var_type(var_name:String):
-	return gdscript_parser.map_get_var_type(var_name)
 
+func get_var_type(var_name:String):
+	return gdscript_parser.get_var_type(var_name)
+
+func property_info_to_type(property_info) -> String:
+	var type = gdscript_parser.property_info_to_type(property_info)
+	return type
+
+func get_script_member_info_by_path(script:GDScript, member_path:String, member_hints:=UClassDetail._MEMBER_ARGS, check_global:=true):
+	return UClassDetail.get_member_info_by_path(script, member_path, member_hints, false, false, false, check_global)
 
 func get_script_alias(access_path:String, data=null):
 	return gdscript_parser.data_access_search.check_for_script_alias(access_path, data)
-
 
 ## For paths starting with "res://": Gets the enum data of the passed class, checks if it is present in the current script,
 ## if not, check's if any global classes have it preloaded.
@@ -409,12 +422,13 @@ func get_access_path(data,
 					class_hint:="",
 					script_alias_set:=DataAccessSearch.ScriptAlias.INHERITED,
 					global_check_set:=DataAccessSearch.GlobalCheck.GLOBAL):
+						
+	#gdscript_parser.data_access_search.set_global_check_setting
 	
 	return gdscript_parser.get_access_path(data, member_hints, class_hint, script_alias_set, global_check_set)
 
-func property_info_to_type(property_info) -> String:
-	var type = gdscript_parser.property_info_to_type(property_info)
-	return type
+
+
 
 
 #endregion
@@ -427,7 +441,14 @@ func get_assignment_at_cursor():
 	if assignment_data == null:
 		return null
 	var left = assignment_data.get("left", "")
-	var left_typed = map_get_var_type(left)
+	var left_typed = ""
+	if left.begins_with("var "):
+		var trimmed = left.trim_prefix("var ")
+		var data = UString.get_var_name_and_type_hint_in_line(left)
+		if data != null:
+			left_typed = get_var_type(data[1])
+	else:
+		left_typed = get_var_type(left)
 	assignment_data["left_typed"] = left_typed
 	return assignment_data
 
@@ -435,18 +456,12 @@ func get_assignment_at_cursor():
 func _get_assignment_at_cursor(line_text: String, caret_col: int):
 	if completion_cache.has(CompletionCache.ASSIGNMENT):
 		return completion_cache[CompletionCache.ASSIGNMENT]
-	#if line_text.find("=") == -1:
-		#completion_cache[CompletionCache.ASSIGNMENT] = null
-		#return null
 	if line_text.rfind("=", caret_col) == -1: # alternative to above, if not on right side no need to do
 		completion_cache[CompletionCache.ASSIGNMENT] = null
 		return null
-	var t = TimeFunction.new("Get Assignment", TimeFunction.TimeScale.USEC)
 	
 	if not is_instance_valid(assignment_regex):# or true: # ALERT remove true
 		assignment_regex = RegEx.new()
-		#var pattern = "((?:var\\s+)?[\\w\\d_.():]+)\\s*(==|:[s+]=|=|![s+]=)"
-		#var pattern = r"((?:var\s+)?[\w.()]+(?:\s*:\s*[\w.]+)?)\s*(=\s*=|:\s*=|!\s*=|=)(.*?)(?=\s*(?:or|and|&&|\|\|)|$)"
 		var pattern = r"((?:var\s+)?[\w.]+(?:\(.*?\))?(?:\s*:\s*[\w.]+)?)\s*(=\s*=|:\s*=|!\s*=|=)(.*?)(?=\s*(?:or|and|&&|\|\|)|$)" # WORKING
 		
 		assignment_regex.compile(pattern)
@@ -472,17 +487,23 @@ func _get_assignment_at_cursor(line_text: String, caret_col: int):
 					#var rhs_start_pos = _match.get_end() # Position after operator + space
 					#rhs = line_text.substr(rhs_start_pos).strip_edges()
 				
-				#var left_type = _map_get_var_type(lhs)
+				var and_index = lhs.rfind(" and ", caret_col)
+				if and_index > -1:
+					lhs = lhs.substr(and_index + 5)
+				var or_index = lhs.rfind(" or ", caret_col)
+				if or_index > -1:
+					lhs = lhs.substr(or_index + 4)
+				var bitwise_index = lhs.rfind("&&", caret_col)
+				if bitwise_index > -1:
+					lhs = lhs.substr(bitwise_index + 2)
 				
 				var data = {
 					"left": lhs,
 					#"left_type": left_type,
 					"operator": operator,
 					"right": rhs }
-				print(data)
-				print("RHS, ", _match.get_string(3).strip_edges())
+				
 				completion_cache[CompletionCache.ASSIGNMENT] = data
-				t.stop()
 				return data
 	
 	completion_cache[CompletionCache.ASSIGNMENT] = null
@@ -495,7 +516,6 @@ func _in_func_call_check(current_line_text:String, current_caret_col:int):
 	var stripped = current_line_text.strip_edges()
 	var in_declar = stripped.begins_with("func") or stripped.begins_with("static func")
 	var func_data = _get_func_call_data(current_line_text, current_caret_col)
-	print(func_data)
 	if func_data.is_empty() or in_declar:
 		completion_cache[CompletionCache.CARET_IN_FUNC_CALL] = false
 		return false
@@ -507,21 +527,27 @@ func _in_func_call_check(current_line_text:String, current_caret_col:int):
 	completion_cache[CompletionCache.CARET_IN_FUNC_CALL] = true
 	return true
 
-func get_func_call_data():
+func get_func_call_data(infer_type:=false):
 	var script_editor = _get_code_edit()
 	var caret_col = script_editor.get_caret_column()
 	var current_line_text = script_editor.get_line(script_editor.get_caret_line())
 	var func_call_data = _get_func_call_data(current_line_text, caret_col)
-	if func_call_data == null:
+	if func_call_data.is_empty():
 		return null
+	if not infer_type:
+		return func_call_data
+	if completion_cache.has(CompletionCache.FUNC_CALL_TYPED):
+		return completion_cache[CompletionCache.FUNC_CALL_TYPED]
+	var t = TimeFunction.new("INTERNAL FUNC CALL GET VAR TYPE", TimeFunction.TimeScale.USEC)
 	var full_call = func_call_data.get("full_call", "")
-	var full_call_typed = map_get_var_type(full_call + "()")
+	var full_call_typed = get_var_type(full_call + "()")
+	t.stop()
 	full_call_typed = full_call_typed.trim_suffix("()")
 	func_call_data["full_call_typed"] = full_call_typed
+	completion_cache[CompletionCache.FUNC_CALL_TYPED] = func_call_data
 	return func_call_data
 
-func _get_func_call_data(current_line_text:String, caret_col:int):
-	var t = TimeFunction.new("NEW FUNC CALL DATA", TimeFunction.TimeScale.USEC)
+func _get_func_call_data(current_line_text:String, caret_col:int) -> Dictionary:
 	if completion_cache.has(CompletionCache.FUNC_CALL):
 		return completion_cache.get(CompletionCache.FUNC_CALL)
 	
@@ -588,7 +614,6 @@ func _get_func_call_data(current_line_text:String, caret_col:int):
 		"args": arg_array,
 		"current_arg_index": current_arg_index}
 	completion_cache[CompletionCache.FUNC_CALL] = data
-	t.stop()
 	return data
 
 func _parse_identifier_at_position(text:String, start_pos:int, string_map):
@@ -673,35 +698,23 @@ func _get_code_edit():
 	return _current_code_edit
 
 
-
 func _store_data_in_section(section, key, value, script, data_cache:Dictionary):
 	if not data_cache.has(section):
 		data_cache[section] = {}
+	var section_data = data_cache.get(section)
 	
 	if script is String:
 		script = load(script)
 	var inh_scripts = UClassDetail.script_get_inherited_script_paths(script)
 	
-	CacheHelper.store_data(key, value, data_cache)
+	CacheHelper.store_data(key, value, section_data, inh_scripts)
 
 func _get_cached_data_in_section(section, key, data_cache:Dictionary):
 	if not data_cache.has(section):
 		return null
+	var section_data = data_cache.get(section)
 	
-	return CacheHelper.get_cached_data(key, data_cache)
-
-
-func _get_cached_data(key, data_cache:Dictionary):
-	if not data_cache.has(key):
-		return null
-	var data = data_cache.get(key)
-	var mod_data = data.get("modified", {})
-	for path in mod_data.keys():
-		if FileAccess.get_modified_time(path) != mod_data.get(path):
-			data_cache.erase(key)
-			return null
-	return data.get("value")
-
+	return CacheHelper.get_cached_data(key, section_data)
 
 
 class EditorSet:
