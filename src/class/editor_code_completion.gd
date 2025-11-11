@@ -3,24 +3,21 @@ class_name EditorCodeCompletion
 const EditorCodeCompletionSingleton = preload("res://addons/code_completions/src/class/editor_code_completion_singleton.gd")
 const UClassDetail = preload("res://addons/addon_lib/brohd/alib_editor/utils/src/u_class_detail.gd")
 const UString = preload("res://addons/addon_lib/brohd/alib_runtime/utils/src/u_string.gd")
+const DataAccessSearch = EditorCodeCompletionSingleton.DataAccessSearch
 
 const TagLocation = EditorCodeCompletionSingleton.TagLocation
 const State = EditorCodeCompletionSingleton.State
 
 var singleton:EditorCodeCompletionSingleton
 
+## Holds registered tags to unregister on clean up. Not to be modified.
 var _tags = {}
-
-var some_tag:TagLocation
-var some_var:ConnectFlags
-
 
 
 func _init() -> void:
 	var settings = _get_completion_settings()
 	singleton = EditorCodeCompletionSingleton._register_completion(self, settings)
 	EditorCodeCompletionSingleton.call_on_ready(_singleton_ready)
-	
 
 func _get_completion_settings() -> Dictionary:
 	return {
@@ -51,12 +48,10 @@ func _on_editor_script_changed(script) -> void:
 func _on_code_completion_requested(script_editor:CodeEdit) -> bool:
 	return false
 
-func get_state() -> EditorCodeCompletionSingleton.State:
+## Get current state of line. See members of [enum State] enum
+func get_state() -> State:
 	return singleton.get_state()
 
-
-func get_script_var_map() -> Dictionary:
-	return singleton.get_script_var_map()
 
 func get_current_class() -> String:
 	return singleton.get_current_class()
@@ -64,16 +59,23 @@ func get_current_class() -> String:
 func get_current_func() -> String:
 	return singleton.get_current_func()
 
+## Get body and local vars of current class and func. All local vars are included, not just in-scope.
+## [method get_in_scope_body_and_local_vars] for in scope only.
+func get_body_and_local_vars():
+	return singleton.gdscript_parser.get_body_and_local_vars(get_current_class(), get_current_func())
+
+## Get body and local vars of class and func. Filters vars that are not in scope.
+func get_in_scope_body_and_local_vars():
+	return singleton.gdscript_parser.get_in_scope_body_and_local_vars()
+
+## Get enum members from GDScriptParser
 func get_enum_members(enum_name:String, _class=null):
 	return singleton.gdscript_parser.get_enum_members(enum_name, _class)
 
 func class_has_func(_func:String, _class:String="") -> bool:
 	return singleton.class_has_func(_func, _class)
 
-func get_script_body_vars(_class:String="") -> Dictionary:
-	return singleton.get_script_body_vars(_class)
-
-func get_script_body_constants(_class:String=""):
+func get_script_constants(_class:String=""):
 	return singleton.get_script_constants(_class)
 
 func get_preload_map():
@@ -82,14 +84,18 @@ func get_preload_map():
 func get_func_args(_class:String, _func_name:String) -> Dictionary:
 	return singleton.get_func_args(_class, _func_name)
 
+## Check if caret
 func caret_in_func_call():
 	return singleton.completion_cache.get(singleton.CompletionCache.CARET_IN_FUNC_CALL, false)
 
+## Get data of current function parentheses caret is within.
 func get_func_call_data(infer_type:=false):
 	return singleton.get_func_call_data(infer_type)
 
-func get_assignment_at_cursor():
-	return singleton.get_assignment_at_cursor()
+## Get assignment data at caret. If on the left side of "=" or comparison operator,
+## returns dictionary with left, left with inferred type, operator, right.
+func get_assignment_at_caret():
+	return singleton.get_assignment_at_caret()
 
 func is_index_in_comment(column:int=-1, line:int=-1, code_edit=null):
 	return singleton.is_index_in_comment(column, line, code_edit)
@@ -97,8 +103,11 @@ func is_index_in_comment(column:int=-1, line:int=-1, code_edit=null):
 func is_index_in_string(column:int=-1, line:int=-1, code_edit=null):
 	return singleton.is_index_in_string(column, line, code_edit)
 
-func get_word_before_cursor():
-	return singleton.get_word_before_cursor()
+func get_word_before_caret():
+	return singleton.get_word_before_caret()
+
+func get_char_before_caret():
+	return singleton.get_char_before_caret()
 
 func add_completion_options(options:Array, hide_private=null):
 	var current = get_code_edit()
@@ -127,3 +136,15 @@ func get_current_script():
 	return singleton._current_script
 func get_code_edit():
 	return singleton._current_code_edit
+
+class Assignment:
+	const LEFT = &"left"
+	const LEFT_TYPED = &"left_typed"
+	const OPERATOR = &"operator"
+	const RIGHT = &"right"
+
+class FuncCall:
+	const FULL_CALL = &"full_call"
+	const FULL_CALL_TYPED = &"full_call_typed"
+	const ARGS = &"args"
+	const ARG_INDEX = &"arg_index"

@@ -1,6 +1,6 @@
 extends Singleton.RefCount
 #! remote
-#! import
+#! import-p UString,UClassDetail,
 
 const SCRIPT = preload("res://addons/code_completions/src/class/editor_code_completion_singleton.gd") #! ignore-remote
 
@@ -13,7 +13,21 @@ const VariantChecker = preload("res://addons/addon_lib/brohd/alib_runtime/misc/v
 const DataAccessSearch = preload("res://addons/code_completions/src/class/data_access_search.gd")
 const CacheHelper = DataAccessSearch.CacheHelper
 
-const GDScriptParser = preload("res://addons/code_completions/src/class/gd_script_parser.gd")
+const GDScriptParser = preload("res://addons/code_completions/src/class/gdscript_parser.gd")
+
+#^b{ LSP
+#const GDScriptLSPParser = preload("res://addons/code_completions/src/class/gdscript_lsp_parser.gd")
+#var gdscript_lsp_parser:GDScriptLSPParser
+#
+#func _create_lsp_parser():
+	#gdscript_lsp_parser = GDScriptLSPParser.new()
+#
+#func _process(delta: float) -> void:
+	#if is_instance_valid(gdscript_lsp_parser):
+		#gdscript_lsp_parser.process()
+
+#^}
+
 
 static func get_singleton_name() -> String:
 	return "EditorCodeCompletion"
@@ -65,17 +79,17 @@ enum ScriptCache {
 }
 
 enum CompletionCache {
-	STATE,
+	WORD_BEFORE_CARET,
+	CHAR_BEFORE_CARET,
 	CARET_IN_FUNC_CALL,
 	FUNC_CALL,
-	ASSIGNMENT,
-	WORD_BEFORE_CARET,
-	CURRENT_SCOPE_VARS,
 	FUNC_CALL_TYPED,
+	ASSIGNMENT,
 }
 
 var data_access_search:DataAccessSearch
 var gdscript_parser:GDScriptParser
+
 
 var hide_private_members:=false
 
@@ -103,11 +117,13 @@ func _ready() -> void:
 	_connect_editor()
 
 
+
 func _singleton_init():
 	_clear_cache()
 	data_access_search = DataAccessSearch.new()
 	gdscript_parser = GDScriptParser.new()
 	gdscript_parser.code_completion_singleton = self
+
 
 func clear_cache():
 	_clear_cache()
@@ -120,7 +136,7 @@ func _clear_cache():
 	completion_cache.clear()
 	
 	peristent_cache[PersistentCache.TAGS] = {}
-	peristent_cache[PersistentCache.GLOBAL_ACCESS_PATHS] = {}
+	#peristent_cache[PersistentCache.GLOBAL_ACCESS_PATHS] = {}
 	
 	script_cache[ScriptCache.STRING_MAPS] = {}
 
@@ -219,7 +235,6 @@ func _set_code_edit(script):
 		_current_script = script
 
 
-
 func _on_editor_script_changed(script):
 	_prep_script(script)
 
@@ -238,11 +253,13 @@ func _prep_script(script):
 		editor_code_completion._on_editor_script_changed(script)
 
 
+
 func _on_code_completion_requested(script_editor:CodeEdit) -> void:
-	completion_cache.clear()
 	
+	completion_cache.clear()
+
 	print("^&^&^&^&^")
-	var t_pre = TimeFunction.new("PreRequest", 1)
+	var t_pre = TimeFunction.new("PreRequest")
 	_pre_request_checks(script_editor)
 	
 	print(State.keys()[current_state])
@@ -270,23 +287,24 @@ func _pre_request_checks(script_editor:CodeEdit):
 	var current_caret_col = script_editor.get_caret_column()
 	var current_line_text:String = script_editor.get_line(current_caret_line)
 	
-	#gdscript_parser.on_completion_requested()
+	gdscript_parser.on_completion_requested() #^ this needs to be before for get_current_func to work
+	#^ why did I move it to after?
 	
 	current_state = State.NONE
 	if is_index_in_string(current_caret_col, current_caret_line, script_editor):
 		current_state = State.STRING
 	elif is_index_in_comment(current_caret_col, current_caret_line, script_editor):
 		current_state = State.COMMENT
-	elif get_current_func() == GDScriptParser._Keys.CLASS_BODY:
-		current_state = State.SCRIPT_BODY
-	elif get_word_before_cursor().find(".") > -1:
+	elif get_word_before_caret().find(".") > -1:
 		current_state = State.MEMBER_ACCESS
 	elif _in_func_call_check(current_line_text, current_caret_col):
 		current_state = State.FUNC_ARGS
-	elif _get_assignment_at_cursor(current_line_text, current_caret_col) != null:
+	elif _get_assignment_at_caret(current_line_text, current_caret_col) != null:
 		current_state = State.ASSIGNMENT
+	elif get_current_func() == GDScriptParser._Keys.CLASS_BODY:
+		current_state = State.SCRIPT_BODY
 	
-	gdscript_parser.on_completion_requested()
+	#gdscript_parser.on_completion_requested()
 	
 
 
@@ -315,7 +333,7 @@ func _tag_completion(script_editor:CodeEdit):
 	var parts = stripped.split(" ", false)
 	
 	if parts.size() > 1:
-		if parts.size() == 2 and get_word_before_cursor() == "":
+		if parts.size() == 2 and get_word_before_caret() == "":
 			return false
 		if parts.size() > 2:
 			return false
@@ -337,7 +355,7 @@ func _tag_completion(script_editor:CodeEdit):
 func _hide_private_completions(script_editor:CodeEdit, completions:Array):
 	if current_state != State.MEMBER_ACCESS: # only hide when accessing a member, want to see private in own class
 		return completions
-	var word_at_cursor = get_word_before_cursor()
+	var word_at_cursor = get_word_before_caret()
 	var last_part = UString.get_member_access_back(word_at_cursor)
 	if last_part.begins_with("_"):
 		return completions
@@ -388,12 +406,6 @@ func get_func_args(_class:String, _func:String):
 func get_func_return(_class:String, _func:String):
 	return gdscript_parser.get_func_return(_class, _func)
 
-func get_script_var_map() -> Dictionary:
-	return gdscript_parser.script_data
-
-func get_script_body_vars(_class:String="") -> Dictionary:
-	var map = get_script_var_map().get(_class)
-	return map.get(GDScriptParser._Keys.CLASS_BODY)
 
 func get_script_constants(_class:String=""):
 	return gdscript_parser.get_script_constants(_class)
@@ -433,14 +445,14 @@ func get_access_path(data,
 
 #endregion
 
-func get_assignment_at_cursor():
+func get_assignment_at_caret():
 	var script_editor = _get_code_edit()
 	var caret_col = script_editor.get_caret_column()
 	var line_text = script_editor.get_line(script_editor.get_caret_line())
-	var assignment_data = _get_assignment_at_cursor(line_text, caret_col)
+	var assignment_data = _get_assignment_at_caret(line_text, caret_col)
 	if assignment_data == null:
 		return null
-	var left = assignment_data.get("left", "")
+	var left = assignment_data.get(EditorCodeCompletion.Assignment.LEFT, "")
 	var left_typed = ""
 	if left.begins_with("var "):
 		var trimmed = left.trim_prefix("var ")
@@ -449,11 +461,12 @@ func get_assignment_at_cursor():
 			left_typed = get_var_type(data[1])
 	else:
 		left_typed = get_var_type(left)
-	assignment_data["left_typed"] = left_typed
+	
+	assignment_data[EditorCodeCompletion.Assignment.LEFT_TYPED] = left_typed
 	return assignment_data
 
 
-func _get_assignment_at_cursor(line_text: String, caret_col: int):
+func _get_assignment_at_caret(line_text: String, caret_col: int):
 	if completion_cache.has(CompletionCache.ASSIGNMENT):
 		return completion_cache[CompletionCache.ASSIGNMENT]
 	if line_text.rfind("=", caret_col) == -1: # alternative to above, if not on right side no need to do
@@ -462,8 +475,7 @@ func _get_assignment_at_cursor(line_text: String, caret_col: int):
 	
 	if not is_instance_valid(assignment_regex):# or true: # ALERT remove true
 		assignment_regex = RegEx.new()
-		var pattern = r"((?:var\s+)?[\w.]+(?:\(.*?\))?(?:\s*:\s*[\w.]+)?)\s*(=\s*=|:\s*=|!\s*=|=)(.*?)(?=\s*(?:or|and|&&|\|\|)|$)" # WORKING
-		
+		var pattern = r"((?:var\s+)?\w+(?:\(.*?\))?(?:\.\w+(?:\(.*?\))?)*(?:\s*:\s*[\w.]+)?)\s*(=\s*=|:\s*=|!\s*=|=)(.*?)(?=\s*(?:or|and|&&|\|\|)|$)"
 		assignment_regex.compile(pattern)
 	
 	var matches = assignment_regex.search_all(line_text)
@@ -471,21 +483,19 @@ func _get_assignment_at_cursor(line_text: String, caret_col: int):
 		for i in range(matches.size() - 1, -1, -1):
 			var _match = matches[i] as RegExMatch
 			if _match.get_start(2) <= caret_col:
-				var lhs = _match.get_string(1).strip_edges()
-				var last_char_idx = _match.get_end(1) - 1
-				#if not lhs.begins_with("var "): # WHY IS THIS HERE CAUSING ISSUES
-					#lhs = _parse_identifier_at_position(line_text, last_char_idx, get_string_map(line_text))
-				var operator = _match.get_string(2).strip_edges()
+				var best_match = _match
+				var rhs = best_match.get_string(3).strip_edges()
+				if rhs.find("=") > -1: #^ search for a 2nd assignment
+					var nested_matches = assignment_regex.search_all(rhs)
+					for nm in range(nested_matches.size() - 1, -1, -1):
+						var nested_match = nested_matches[nm]
+						if nested_match.get_start(2) <= caret_col:
+							best_match = nested_match
+							rhs = best_match.get_string(3).strip_edges()
 				
-				var rhs = _match.get_string(3).strip_edges()
-				
-				#var rhs = ""
-				#if i + 1 < matches.size(): # If there's a next match, its LHS is our RHS.
-					#var next_match = matches[i+1] as RegExMatch
-					#rhs = next_match.get_string(1).strip_edges()
-				#else: # If this is the last match, the RHS is the rest of the line.
-					#var rhs_start_pos = _match.get_end() # Position after operator + space
-					#rhs = line_text.substr(rhs_start_pos).strip_edges()
+				var lhs = best_match.get_string(1).strip_edges()
+				var last_char_idx = best_match.get_end(1) - 1
+				var operator = best_match.get_string(2).strip_edges()
 				
 				var and_index = lhs.rfind(" and ", caret_col)
 				if and_index > -1:
@@ -497,11 +507,12 @@ func _get_assignment_at_cursor(line_text: String, caret_col: int):
 				if bitwise_index > -1:
 					lhs = lhs.substr(bitwise_index + 2)
 				
+				lhs = lhs.trim_prefix("self.") #^ simple sub
+				
 				var data = {
-					"left": lhs,
-					#"left_type": left_type,
-					"operator": operator,
-					"right": rhs }
+					EditorCodeCompletion.Assignment.LEFT: lhs,
+					EditorCodeCompletion.Assignment.OPERATOR: operator,
+					EditorCodeCompletion.Assignment.RIGHT: rhs }
 				
 				completion_cache[CompletionCache.ASSIGNMENT] = data
 				return data
@@ -519,7 +530,7 @@ func _in_func_call_check(current_line_text:String, current_caret_col:int):
 	if func_data.is_empty() or in_declar:
 		completion_cache[CompletionCache.CARET_IN_FUNC_CALL] = false
 		return false
-	var arg_text = func_data["args"][func_data["current_arg_index"]]
+	var arg_text = func_data[EditorCodeCompletion.FuncCall.ARGS][func_data[EditorCodeCompletion.FuncCall.ARG_INDEX]]
 	if arg_text.rfind("=", current_caret_col) > -1:
 		completion_cache[CompletionCache.CARET_IN_FUNC_CALL] = false
 		return false
@@ -538,12 +549,16 @@ func get_func_call_data(infer_type:=false):
 		return func_call_data
 	if completion_cache.has(CompletionCache.FUNC_CALL_TYPED):
 		return completion_cache[CompletionCache.FUNC_CALL_TYPED]
-	var t = TimeFunction.new("INTERNAL FUNC CALL GET VAR TYPE", TimeFunction.TimeScale.USEC)
-	var full_call = func_call_data.get("full_call", "")
-	var full_call_typed = get_var_type(full_call + "()")
-	t.stop()
-	full_call_typed = full_call_typed.trim_suffix("()")
-	func_call_data["full_call_typed"] = full_call_typed
+	
+	var full_call = func_call_data.get(EditorCodeCompletion.FuncCall.FULL_CALL, "")
+	if full_call.find(".") > -1:
+		var string_map = get_string_map(full_call) #^ trim method so we can just infer object types
+		var trimmed = UString.trim_member_access_back(full_call, string_map)
+		var method_call = UString.get_member_access_back(full_call, string_map)
+		var full_call_typed = get_var_type(trimmed)# + "()")
+		full_call_typed = full_call_typed + "." + method_call
+		func_call_data[EditorCodeCompletion.FuncCall.FULL_CALL_TYPED] = full_call_typed
+	
 	completion_cache[CompletionCache.FUNC_CALL_TYPED] = func_call_data
 	return func_call_data
 
@@ -581,6 +596,8 @@ func _get_func_call_data(current_line_text:String, caret_col:int) -> Dictionary:
 	if func_full_call == "":
 		return {}
 	
+	func_full_call = func_full_call.trim_prefix("self.") #^ simple check
+	
 	var arg_idxs = []
 	var current_arg_index = 0
 	var count = closed_bracket_index
@@ -610,9 +627,9 @@ func _get_func_call_data(current_line_text:String, caret_col:int) -> Dictionary:
 	arg_array.append(last_arg)
 	
 	var data = {
-		"full_call": func_full_call,
-		"args": arg_array,
-		"current_arg_index": current_arg_index}
+		EditorCodeCompletion.FuncCall.FULL_CALL: func_full_call,
+		EditorCodeCompletion.FuncCall.ARGS: arg_array,
+		EditorCodeCompletion.FuncCall.ARG_INDEX: current_arg_index}
 	completion_cache[CompletionCache.FUNC_CALL] = data
 	return data
 
@@ -647,7 +664,7 @@ func _parse_identifier_at_position(text:String, start_pos:int, string_map):
 
 #endregion
 
-func get_word_before_cursor():
+func get_word_before_caret():
 	if completion_cache.has(CompletionCache.WORD_BEFORE_CARET):
 		return completion_cache[CompletionCache.WORD_BEFORE_CARET]
 	var script_editor = _get_code_edit() as CodeEdit
@@ -655,9 +672,24 @@ func get_word_before_cursor():
 	var line_text = script_editor.get_line(script_editor.get_caret_line())
 	var string_map = get_string_map(line_text)
 	var identifier = _parse_identifier_at_position(line_text, caret_col - 1, string_map)
-	print("WORD BEFORE CARET: ", identifier)
 	completion_cache[CompletionCache.WORD_BEFORE_CARET] = identifier
+	print("WORD BEFORE CARET: ", identifier)
 	return identifier
+
+func get_char_before_caret():
+	var script_editor = _get_code_edit() as CodeEdit
+	var caret_col = script_editor.get_caret_column()
+	var line_text = script_editor.get_line(script_editor.get_caret_line())
+	var i = caret_col - 1
+	var char = ""
+	while i >= 0:
+		char = line_text[i]
+		if char != " ":
+			break
+		i -= 1
+	completion_cache[CompletionCache.CHAR_BEFORE_CARET] = char
+	print("CHAR BEFORE CARET: ", char)
+	return char
 
 
 func is_index_in_comment(column:int=-1, line:int=-1, code_edit=null):
@@ -688,13 +720,13 @@ func get_string_map(text:String, mode:UString.StringMap.Mode=UString.StringMap.M
 	return string_map
 
 func _get_current_script():
-	if _current_script == null:
-		_current_script = EditorInterface.get_script_editor().get_current_script()
+	#if _current_script == null:
+	_current_script = ScriptEditorRef.get_current_script()
 	return _current_script
 
 func _get_code_edit():
 	if _current_code_edit == null:
-		_current_code_edit = EditorInterface.get_script_editor().get_current_editor().get_base_editor()
+		_current_code_edit = ScriptEditorRef.get_current_code_edit()
 	return _current_code_edit
 
 
@@ -706,7 +738,6 @@ func _store_data_in_section(section, key, value, script, data_cache:Dictionary):
 	if script is String:
 		script = load(script)
 	var inh_scripts = UClassDetail.script_get_inherited_script_paths(script)
-	
 	CacheHelper.store_data(key, value, section_data, inh_scripts)
 
 func _get_cached_data_in_section(section, key, data_cache:Dictionary):
