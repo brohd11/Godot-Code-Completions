@@ -650,7 +650,6 @@ func _get_var_type(var_name:String, _func, _class):
 	if not local_var_in_scope:
 		var source_check = _check_script_source_member_valid(var_name, _class)
 		if source_check != null: # early exit
-			print("SOURCE CHECK")
 			var prop_string = _property_info_to_type(source_check)
 			if prop_string == "":
 				return var_name

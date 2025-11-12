@@ -4,7 +4,9 @@ extends EditorCodeCompletion
 
 const CacheHelper = EditorCodeCompletionSingleton.CacheHelper
 
+
 var show_member_suggestions:= false
+var show_alias_only:=false
 
 var data_cache = {}
 
@@ -17,6 +19,8 @@ func _init_set_settings():
 	var ed_settings = EditorInterface.get_editor_settings()
 	if not ed_settings.has_setting(EditorSet.SHOW_MEMBER_SUGGESTIONS):
 		ed_settings.set_setting(EditorSet.SHOW_MEMBER_SUGGESTIONS, false)
+	if not ed_settings.has_setting(EditorSet.SHOW_ALIAS_ONLY):
+		ed_settings.set_setting(EditorSet.SHOW_ALIAS_ONLY, false)
 	
 	_set_settings()
 	ed_settings.settings_changed.connect(_set_settings)
@@ -24,6 +28,7 @@ func _init_set_settings():
 func _set_settings():
 	var ed_settings = EditorInterface.get_editor_settings()
 	show_member_suggestions = ed_settings.get_setting(EditorSet.SHOW_MEMBER_SUGGESTIONS)
+	show_alias_only = ed_settings.get(EditorSet.SHOW_ALIAS_ONLY)
 
 func _on_code_completion_requested(script_editor:CodeEdit) -> bool:
 	var current_state := get_state()
@@ -140,9 +145,9 @@ func _func_call() -> bool:
 
 
 func _process_to_enum_data(input_data, force_update:=false):
-	print("Input Data: ", input_data)
+	#print("Input Data: ", input_data)
 	var process_input = _process_input_data(input_data)
-	print("PROCESS: ", process_input)
+	#print("PROCESS: ", process_input)
 	if process_input == null:
 		return false
 	
@@ -160,27 +165,31 @@ func _process_to_enum_data(input_data, force_update:=false):
 		var deep = true #^ this is set to true to allow searching inner classes, could cause issues with preloads
 		var enum_access_path = UClassDetail.script_get_member_by_value(enum_script, enum_data, deep, ["const"])
 		if enum_access_path == null: # should be impossible...
-			print("COULD NOT GET ENUM ACCESS, SHOULD NOT HAPPEN: ", member_path)
-			print(enum_script.resource_path)
+			#print("COULD NOT GET ENUM ACCESS, SHOULD NOT HAPPEN: ", member_path)
+			#print(enum_script.resource_path)
 			return false
 		process_input["enum_access_path"] = enum_access_path
 		
 		var current_script = get_current_script()
-		var t = ALibRuntime.Utils.UProfile.TimeFunction.new("GET MEMBER PATH")
 		member_path = _get_member_path_from_data(process_input, current_script)
-		process_input.member_path = member_path
-		t.stop()
-		print(member_path)
-		var t2 = ALibRuntime.Utils.UProfile.TimeFunction.new("ALIAS")
+		
 		alias = _check_inherited_preloads_for_alias(process_input, current_script)
-		t2.stop()
-		print(alias)
 		if alias != null:
-			if alias == member_path:
+			if show_alias_only:
+				member_path = alias
 				alias = null
+			else:
+				if alias == member_path:
+					alias = null
+				if member_path == null:
+					member_path = alias
+					alias = null
 		
 	else: # set to null for built in classes
 		member_path = DataAccessSearch.check_for_godot_class_inheritance(member_path)
+	
+	if member_path == null and alias == null:
+		return false
 	
 	var other_options = []
 	if process_input.has("enum_class"):
@@ -298,8 +307,8 @@ func _process_input_data_string(input_data:String):
 				var processed_data = _process_input_data_dict(member_info)
 				#printerr(input_data, " PROCESS STRING CALL DICT", processed_data)
 				return processed_data
-		else:
-				printerr("Enum Member info not dict: ", member_info)
+		#else:
+			#printerr("Enum Member info not dict: ", member_info)
 	
 	return null
 
@@ -348,7 +357,7 @@ func _add_code_completions(access_path:String, enum_data:Array, other_options:= 
 func _get_enum_vars(processed_data:Dictionary) -> Array:
 	if not show_member_suggestions:
 		return []
-	var t = ALibRuntime.Utils.UProfile.TimeFunction.new("Get enum vars")
+	#var t = ALibRuntime.Utils.UProfile.TimeFunction.new("Get enum vars")
 	var current_class = get_current_class()
 	var current_assigned = ""
 	if get_state() == State.ASSIGNMENT:
@@ -369,7 +378,7 @@ func _get_enum_vars(processed_data:Dictionary) -> Array:
 	if enum_script != null:
 		enum_script_path = enum_script.resource_path
 	var option_dict = {}
-	print("GET ENUM VARS: ", enum_class_string)
+	#print("GET ENUM VARS: ", enum_class_string)
 	
 	var script_editor = get_code_edit()
 	var current_line = script_editor.get_caret_line()
@@ -418,7 +427,7 @@ func _get_enum_vars(processed_data:Dictionary) -> Array:
 		if not _is_property_info_enum(data):
 			continue
 		var _class_name = data.get("class_name")
-		print(_class_name, " ", enum_class_string, " ",member_path)
+		#print(_class_name, " ", enum_class_string, " ",member_path)
 		if _class_name == enum_class_string:
 			option_dict[p] = true
 			continue
@@ -427,7 +436,7 @@ func _get_enum_vars(processed_data:Dictionary) -> Array:
 				option_dict[p] = true
 	
 	
-	t.stop()
+	#t.stop()
 	return option_dict.keys()
 
 #^r think this func is obsolete
@@ -485,8 +494,8 @@ func _get_member_path_from_data(processed_input:Dictionary, script:GDScript):
 	
 	# get global path
 	var cached_global_path = _get_cached_data("GlobalPaths", enum_script, data_cache)
-	if cached_global_path != null and not true:
-		print("CACHED GLOBAL: ", cached_global_path)
+	if cached_global_path != null:
+		#print("CACHED GLOBAL: ", cached_global_path)
 		return cached_global_path
 	
 	var class_hint = ""
@@ -502,7 +511,7 @@ func _get_member_path_from_data(processed_input:Dictionary, script:GDScript):
 	
 	#^r this won't work with functions that don't have a type before, possibly check func directly?
 	#if class_hint == "": #^ consider this to stop huge lookup times. Most things should be handled by first few checks
-		#return access_path #^ if not found by now, should have a class hint.
+		#return null #^ if not found by now, should have a class hint.
 	
 	
 	var global_classes = UClassDetail.get_all_global_class_paths()
@@ -514,10 +523,10 @@ func _get_member_path_from_data(processed_input:Dictionary, script:GDScript):
 		var full_global_path = global_access_path + "." + enum_access_path
 		var inh_paths = UClassDetail.script_get_inherited_script_paths(global_script)
 		_store_data("GlobalPaths", enum_script, full_global_path, global_script, data_cache)
-		print("GOT GLOBAL: ", full_global_path)
+		#print("GOT GLOBAL: ", full_global_path)
 		return full_global_path
 	
-	return access_path
+	return null
 
 func _check_inherited_preloads_for_alias(processed_input:Dictionary, script:GDScript):
 	var enum_data = processed_input.enum_data
@@ -529,8 +538,8 @@ func _check_inherited_preloads_for_alias(processed_input:Dictionary, script:GDSc
 	var dot_idx = access_path.find(".")
 	if dot_idx == -1: #^ check current script if not member access
 		var member_info = UClassDetail.get_member_info(script, access_path, ["const"])
-		if member_info != null and _is_dict_enum(member_info):
-			print("ENUM IN SCRIPT, NO DOT: ", access_path)
+		if member_info is Dictionary and _is_dict_enum(member_info):
+			#print("ENUM IN SCRIPT, NO DOT: ", access_path)
 			return access_path
 	
 	var preload_alias = _get_preload_alias(access_path, enum_class_string)
@@ -540,16 +549,18 @@ func _check_inherited_preloads_for_alias(processed_input:Dictionary, script:GDSc
 	var immediate_alias = DataAccessSearch.script_alias_search_static(access_path, enum_data, false, script)
 	if immediate_alias != null: #^ this could cause issues with duplicate enums in the current class
 		var alias_path = immediate_alias
-		print("IMMEDIATE ALIAS")
+		#print("IMMEDIATE ALIAS")
 		return alias_path
 	
 	#^ deep alias search
-	var cached_alias = _get_cached_data("ScriptAlias", enum_script, data_cache)
-	if cached_alias == null or true: # ALERT remember this true
+	var script_path = script.resource_path
+	var script_alias_section = data_cache.get_or_add("ScriptAlias", {})
+	var cached_alias = _get_cached_data(script_path, enum_script, script_alias_section)
+	if cached_alias == null:
 		var script_alias = DataAccessSearch.script_alias_search_static(access_path, enum_script, false, script)
 		if script_alias != null: #^ search current script for enums parent script preloaded
 			var alias_path = script_alias + "." + enum_access_path
-			_store_data("ScriptAlias", enum_script, alias_path, script, data_cache)
+			_store_data(script_path, enum_script, alias_path, script, script_alias_section)
 			return alias_path
 		
 		var preloads = UClassDetail.script_get_preloads(script, true, true)
@@ -558,15 +569,15 @@ func _check_inherited_preloads_for_alias(processed_input:Dictionary, script:GDSc
 			script_alias = DataAccessSearch.script_alias_search_static(access_path, enum_script, false, pl_script)
 			if script_alias != null: #^ search preloads and inner classes for enums parent script preloaded
 				var alias_path = _name + "." + script_alias + "." + enum_access_path
-				_store_data("ScriptAlias", enum_script, alias_path, script, data_cache)
+				_store_data(script_path, enum_script, alias_path, script, script_alias_section)
 				return alias_path
 		
-		_store_data("ScriptAlias", enum_script, &"%NO_PATH%", script, data_cache) # store no path until current script is saved
+		_store_data(script_path, enum_script, &"%NO_PATH%", script, script_alias_section) # store no path until current script is saved
 	else:
 		if cached_alias != &"%NO_PATH%":
 			return cached_alias
 	
-	print("COULD NOT FIND ALIAS")
+	#print("COULD NOT FIND ALIAS")
 	return null
 
 func _get_preload_alias(access_path:String, enum_class_string:String):
@@ -574,7 +585,7 @@ func _get_preload_alias(access_path:String, enum_class_string:String):
 	var best_preload_length = 0
 	var preload_map = get_preload_map() # path is key
 	if preload_map.has(enum_class_string):
-		print("DIRECT PRELOAD")
+		#print("DIRECT PRELOAD")
 		return preload_map.get(enum_class_string)
 	
 	for nm_or_path:String in preload_map.keys():
@@ -593,7 +604,7 @@ func _get_preload_alias(access_path:String, enum_class_string:String):
 			new_path = enum_class_string.trim_prefix(best_preload_alias)
 			new_path = val + new_path
 			pass
-		prints("PRELOAD BEGINS WITH: ", best_preload_alias,":", val, access_path, "->", new_path)
+		#prints("PRELOAD BEGINS WITH: ", best_preload_alias,":", val, access_path, "->", new_path)
 		return new_path
 	
 	return null
@@ -633,3 +644,4 @@ func _is_property_info_enum(data:Dictionary):
 
 class EditorSet:
 	const SHOW_MEMBER_SUGGESTIONS = &"plugin/code_completion/enum/show_member_suggestions"
+	const SHOW_ALIAS_ONLY = &"plugin/code_completion/enum/show_alias_only"

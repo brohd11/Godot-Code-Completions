@@ -101,7 +101,7 @@ static func script_alias_search_static(access_path:String, data=null, deep:=fals
 			return access_path
 	
 	var script_access_path = UClassDetail.script_get_member_by_value(current_script, data, deep, ["const"], true)
-	print("STATIC ALIAS SEARCH: ", access_path, " -> ", script_access_path)
+	#print("STATIC ALIAS SEARCH: ", access_path, " -> ", script_access_path)
 	if script_access_path != null:
 		return script_access_path
 	return null

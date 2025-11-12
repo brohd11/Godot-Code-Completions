@@ -28,6 +28,7 @@ const GDScriptParser = preload("res://addons/code_completions/src/class/gdscript
 
 #^}
 
+const TimeFunction = ALibRuntime.Utils.UProfile.TimeFunction
 
 static func get_singleton_name() -> String:
 	return "EditorCodeCompletion"
@@ -186,7 +187,7 @@ func unregister_tag(prefix:String, tag:String):
 func code_completion_added():
 	sort_completions()
 
-const TimeFunction = ALibRuntime.Utils.UProfile.TimeFunction
+
 
 func sort_completions():
 	if _sort_queued:
@@ -255,31 +256,21 @@ func _prep_script(script):
 
 
 func _on_code_completion_requested(script_editor:CodeEdit) -> void:
-	
 	completion_cache.clear()
-
-	print("^&^&^&^&^")
-	var t_pre = TimeFunction.new("PreRequest")
 	_pre_request_checks(script_editor)
-	
-	print(State.keys()[current_state])
 	
 	var has_tag = _tag_completion(script_editor)
 	if has_tag:
 		return
 	
-	t_pre.stop()
-	
 	for editor_code_completion in code_completions.keys():
-		var t = TimeFunction.new(str(editor_code_completion.get_script().resource_path.get_file()), TimeFunction.TimeScale.USEC)
+		var t = TimeFunction.new(str(editor_code_completion.get_script().resource_path.get_file()))
 		var handled = editor_code_completion._on_code_completion_requested(script_editor)
 		t.stop()
 		if handled:
 			return
 	
-	var t = TimeFunction.new("Hide vars", TimeFunction.TimeScale.USEC)
 	add_code_completion_options(script_editor)
-	t.stop()
 
 
 func _pre_request_checks(script_editor:CodeEdit):
@@ -288,7 +279,6 @@ func _pre_request_checks(script_editor:CodeEdit):
 	var current_line_text:String = script_editor.get_line(current_caret_line)
 	
 	gdscript_parser.on_completion_requested() #^ this needs to be before for get_current_func to work
-	#^ why did I move it to after?
 	
 	current_state = State.NONE
 	if is_index_in_string(current_caret_col, current_caret_line, script_editor):
@@ -303,9 +293,6 @@ func _pre_request_checks(script_editor:CodeEdit):
 		current_state = State.ASSIGNMENT
 	elif get_current_func() == GDScriptParser._Keys.CLASS_BODY:
 		current_state = State.SCRIPT_BODY
-	
-	#gdscript_parser.on_completion_requested()
-	
 
 
 func _tag_completion(script_editor:CodeEdit):
@@ -427,23 +414,8 @@ func get_script_member_info_by_path(script:GDScript, member_path:String, member_
 func get_script_alias(access_path:String, data=null):
 	return gdscript_parser.data_access_search.check_for_script_alias(access_path, data)
 
-## For paths starting with "res://": Gets the enum data of the passed class, checks if it is present in the current script,
-## if not, check's if any global classes have it preloaded.
-func get_access_path(data,
-					member_hints:=["const"],
-					class_hint:="",
-					script_alias_set:=DataAccessSearch.ScriptAlias.INHERITED,
-					global_check_set:=DataAccessSearch.GlobalCheck.GLOBAL):
-						
-	#gdscript_parser.data_access_search.set_global_check_setting
-	
-	return gdscript_parser.get_access_path(data, member_hints, class_hint, script_alias_set, global_check_set)
-
-
-
-
-
 #endregion
+
 
 func get_assignment_at_caret():
 	var script_editor = _get_code_edit()
@@ -473,7 +445,7 @@ func _get_assignment_at_caret(line_text: String, caret_col: int):
 		completion_cache[CompletionCache.ASSIGNMENT] = null
 		return null
 	
-	if not is_instance_valid(assignment_regex):# or true: # ALERT remove true
+	if not is_instance_valid(assignment_regex):
 		assignment_regex = RegEx.new()
 		var pattern = r"((?:var\s+)?\w+(?:\(.*?\))?(?:\.\w+(?:\(.*?\))?)*(?:\s*:\s*[\w.]+)?)\s*(=\s*=|:\s*=|!\s*=|=)(.*?)(?=\s*(?:or|and|&&|\|\|)|$)"
 		assignment_regex.compile(pattern)
@@ -673,7 +645,7 @@ func get_word_before_caret():
 	var string_map = get_string_map(line_text)
 	var identifier = _parse_identifier_at_position(line_text, caret_col - 1, string_map)
 	completion_cache[CompletionCache.WORD_BEFORE_CARET] = identifier
-	print("WORD BEFORE CARET: ", identifier)
+	#print("WORD BEFORE CARET: ", identifier)
 	return identifier
 
 func get_char_before_caret():
@@ -688,7 +660,7 @@ func get_char_before_caret():
 			break
 		i -= 1
 	completion_cache[CompletionCache.CHAR_BEFORE_CARET] = char
-	print("CHAR BEFORE CARET: ", char)
+	#print("CHAR BEFORE CARET: ", char)
 	return char
 
 
