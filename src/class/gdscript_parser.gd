@@ -1,5 +1,6 @@
 #! import-p UString,UClassDetail,
 
+const UFile = preload("res://addons/addon_lib/brohd/alib_runtime/utils/src/u_file.gd")
 const UClassDetail = preload("res://addons/addon_lib/brohd/alib_editor/utils/src/u_class_detail.gd")
 const UString = preload("res://addons/addon_lib/brohd/alib_runtime/utils/src/u_string.gd")
 const GlobalChecker = preload("res://addons/addon_lib/brohd/alib_runtime/misc/global_checker.gd")
@@ -14,6 +15,7 @@ var _indent_size:int
 var _current_script:GDScript
 var _current_code_edit:CodeEdit
 var _current_code_edit_text:String
+var _current_code_edit_text_caret:int
 
 var last_caret_line = -1
 var _last_func = ""
@@ -39,9 +41,12 @@ func _set_settings():
 	_indent_size = editor_settings.get_setting(EditorSet.INDENT_SIZE)
 
 func on_script_changed(script):
-	_current_code_edit = EditorInterface.get_script_editor().get_current_editor().get_base_editor()
-	_current_script = EditorInterface.get_script_editor().get_current_script()
-	_current_code_edit_text = _current_code_edit.text
+	var script_editor = ScriptEditorRef.get_current_code_edit()
+	if not is_instance_valid(script_editor):
+		return
+	_current_code_edit = ScriptEditorRef.get_current_code_edit()
+	_current_script = ScriptEditorRef.get_current_script()
+	_current_code_edit_text = _current_code_edit.get_text_for_code_completion()
 	last_caret_line = -1
 	if script != null:
 		_get_script_inherited_members(script)
@@ -55,6 +60,7 @@ func _on_text_changed():
 
 func on_completion_requested():
 	_current_code_edit_text = _current_code_edit.get_text_for_code_completion()
+	_current_code_edit_text_caret = _current_code_edit_text.find("\uFFFF")
 	
 	completion_cache.clear()
 	var script_editor:CodeEdit = _get_code_edit()
@@ -159,6 +165,9 @@ func map_script_members():
 
 func _map_script_members():
 	var script_editor = _get_code_edit()
+	#if not is_instance_valid(script_editor): #^ this is checked on script changed
+		#script_data.clear()
+		#return {}
 	var access_path = ""
 	var access_path_parts = []
 	var member_data = {}
@@ -617,6 +626,7 @@ func get_var_type(var_name:String, _func=null, _class=null):
 					break
 			
 			var working_func_call = final_type_hint + "." + part
+			print("WORK ", working_func_call)
 			var member_info = get_script_member_info_by_path(current_script, working_func_call)
 			if member_info == null:
 				printerr("COULD NOT FIND MEMBER INFO: ", working_func_call)
@@ -658,7 +668,7 @@ func _get_var_type(var_name:String, _func, _class):
 	var type_hint = _get_raw_type(var_name, _func, _class)
 	if type_hint == "":
 		return "" #^ return empty string so a local var will not trigger a body var in lookup
-	
+	print("RAW ", type_hint)
 	type_hint = _get_type_hint(type_hint, _class, _func)
 	if type_hint == "":
 		return var_name
@@ -723,11 +733,16 @@ func _get_type_hint(type_hint:String, _class:String, _func:String):
 	var in_body_vars = in_body_valid > 0
 	var in_local_vars = local_vars.has(access_name)
 	#^ Vars are valid at this point.
-	#print("GET TYPE HINT ", type_hint)
+	print("GET TYPE HINT ", type_hint)
+	if type_hint.find(" as ") > -1:
+		type_hint = type_hint.get_slice(" as ", 1).strip_edges()
+	
 	if VariantChecker.check_type(type_hint):
 		return type_hint
 	if type_hint.begins_with("res://"):
 		return type_hint
+	if type_hint.begins_with("uid:"):
+		return UFile.uid_to_path(type_hint)
 	
 	if type_hint == "true" or type_hint == "false":
 		return "bool"
@@ -859,6 +874,8 @@ func get_body_and_local_vars(_class:String, _func:String):
 	return _get_body_and_local_vars(_class, _func)
 
 func _get_body_and_local_vars(_class:String, _func:String):
+	if not script_data.has(_class):
+		_map_script_members()
 	var class_vars = script_data.get(_class)
 	var body_vars = class_vars.get(_Keys.CLASS_BODY)
 	var local_vars:Dictionary
@@ -941,6 +958,7 @@ func _get_in_scope_body_and_local_vars(_class, _func): #^ possibly pass a varnam
 	var in_scope_vars = {}
 	var code_edit = _get_code_edit()
 	var current_line = code_edit.get_caret_line()
+	var current_line_indent = code_edit.get_indent_level(current_line)
 	var current_access_indent = _get_current_access_indent() + _indent_size
 	var current_branch_start = _get_current_branch_start()
 	for var_name in vars.local.keys():
@@ -955,7 +973,8 @@ func _get_in_scope_body_and_local_vars(_class, _func): #^ possibly pass a varnam
 		if declaration == null:
 			continue
 		var indent = data.get(_Keys.INDENT)
-		if indent > current_access_indent and declaration < current_branch_start:
+		#if indent > current_access_indent and declaration < current_branch_start:
+		if indent > current_line_indent and declaration < current_branch_start: #^ switch to current line indent, I believe correct
 			continue
 		if declaration <= current_line:
 			in_scope_vars[var_name] = data
@@ -1132,7 +1151,11 @@ func _get_member_declaration_from_text(var_name:String, text:String, indent:int,
 	
 	var var_declaration_idx:int = -1
 	if reverse:
-		var caret_idx = text.find("\uFFFF") # from cursor check behind for latest
+		if text_source == &"source":
+			printerr("Can't run reverse member declaration search on source code. Need caret char from code edit method.")
+			return ""
+		#var caret_idx = text.find("\uFFFF") # from cursor check behind for latest
+		var caret_idx = _current_code_edit_text_caret
 		var_declaration_idx = text.rfind(search_string, caret_idx)
 		if var_declaration_idx == -1:
 			var_declaration_idx = text.find(search_string, caret_idx)
@@ -1180,8 +1203,8 @@ func _get_member_declaration_from_text(var_name:String, text:String, indent:int,
 		var_declaration = text.substr(new_line_idx, text.find("\n", new_line_idx + 1) - new_line_idx + 1)
 		if var_declaration.find(";") > -1:
 			var_declaration = var_declaration.get_slice(";", 0)
-	
-	var stripped = var_declaration.strip_edges()
+	var no_com = var_declaration.get_slice("#", 0) #^ may need string map?
+	var stripped = no_com.strip_edges()
 	completion_cache[_Keys.SCRIPT_DECLARATIONS_TEXT][text_source][var_name][indent] = stripped
 	return stripped
 
@@ -1299,7 +1322,6 @@ func _resolve_full_type(var_name:String, constants_dict:Dictionary) -> String:
 	var suffix = ""
 	var current_alias = var_name
 	var visited_aliases = {}
-	
 	while constants_dict.has(current_alias):
 		if visited_aliases.has(current_alias): # If we have seen this alias before, we're in a loop.
 			#printerr("Cycle detected in constant resolution! Alias '", current_alias, "' is part of a loop.")
@@ -1309,13 +1331,14 @@ func _resolve_full_type(var_name:String, constants_dict:Dictionary) -> String:
 		var data = constants_dict[current_alias]
 		var full_definition: String = data.get(_Keys.TYPE)
 		var dot_pos = full_definition.find(".")
-		
 		if dot_pos > -1:
 			var next_alias = full_definition.substr(0, dot_pos)
 			var new_suffix = full_definition.substr(dot_pos)
 			suffix = new_suffix + suffix
 			current_alias = next_alias
 		else:
+			if current_alias == full_definition:
+				return current_alias + suffix
 			current_alias = full_definition
 	
 	return current_alias + suffix
@@ -1366,7 +1389,9 @@ func _get_current_script():
 
 func _get_code_edit():
 	if _current_code_edit == null:
-		_current_code_edit = ScriptEditorRef.get_current_code_edit()
+		var script_ed = ScriptEditorRef.get_current_code_edit()
+		if is_instance_valid(script_ed):
+			_current_code_edit = script_ed
 	return _current_code_edit
 
 ## Check that class name is Godot Native or member of the class. A valid user global class will also return true.
@@ -1383,6 +1408,23 @@ func _is_class_name_valid(_class_name, check_global:=true):
 		if UClassDetail.get_global_class_path(_class_name) != "":
 			return true
 	return false
+
+#^ utils - would put this in singleton but don't want to copy text again
+## Return int, 0=false, 1=dict, 2=enum 
+func is_caret_in_dict_or_enum():
+	var caret = _current_code_edit_text_caret
+	var open_idx = _current_code_edit_text.rfind("{", caret)
+	if open_idx == -1:
+		return 0
+	var close_idx = _current_code_edit_text.rfind("}", caret)
+	if close_idx < open_idx: #^ need to handle nested dictionaries
+		var new_idx = _current_code_edit_text.rfind("\n", open_idx)
+		var dict_declar = _current_code_edit_text.substr(new_idx, open_idx - new_idx).strip_edges()
+		if dict_declar.begins_with("enum "):
+			return 2
+		return 1
+	return 0
+
 
 
 #^ singleton

@@ -26,7 +26,7 @@ const CALL_WITH_ARGS = "(\u2026)"
 var hide_global_classes_setting:= false
 var hide_global_exemptions:Array = []
 
-var editor_theme:Theme
+
 var data_cache:Dictionary = {}
 
 var extended_class_names:Dictionary = {} #^ [name, bool] a set
@@ -121,7 +121,8 @@ func _on_code_completion_requested(script_editor:CodeEdit) -> bool:
 		return false
 	elif current_state == State.MEMBER_ACCESS:
 		return false
-	
+	elif is_caret_in_enum():
+		return false
 	
 	var word_before_cursor = get_word_before_caret()
 	#if word_before_cursor.find(".") > -1:
@@ -129,19 +130,20 @@ func _on_code_completion_requested(script_editor:CodeEdit) -> bool:
 	
 	var existing_options = script_editor.get_code_completion_options()
 	if existing_options.is_empty(): #^ early returns
+		if caret_in_func_declaration():
+			return false
 		if _SKIP_KEYWORDS.has(word_before_cursor):
 			return false
 		var line = script_editor.get_line(script_editor.get_caret_line())#.strip_edges()
+		var stripped = line.strip_edges()
 		for word in _SKIP_DECLARTIONS:
-			if line.begins_with(word):
+			if stripped.begins_with(word):
 				return false
 		var char_before_cursor = get_char_before_caret()
 		if _SKIP_CHARS.has(char_before_cursor):
 			return false
 	
-	#var t2 = ALibRuntime.Utils.UProfile.TimeFunction.new("get data")
-	#print("GETTING TO ADD")
-	#print(imported_classes.keys())
+	
 	var options = []
 	var options_dict:Dictionary = {}
 	var current_script = get_current_script()
@@ -150,11 +152,13 @@ func _on_code_completion_requested(script_editor:CodeEdit) -> bool:
 		cache_cc_options = _get_code_complete_options()
 		_store_data(IMPORT_MEMBERS_CURRENT, current_script.resource_path, cache_cc_options, current_script, data_cache)
 	
-	#t2.stop()
 	
 	var cc_options = cache_cc_options.duplicate(true) #^ duplicate so cache retains options to skip
 	var options_to_skip = cc_options.get(OPTIONS_TO_SKIP, {})
 	cc_options.erase(OPTIONS_TO_SKIP)
+	
+	for o in cc_options.values():
+		add_completion_option(script_editor, o)
 	
 	for e in existing_options:
 		var display = e.display_text
@@ -163,13 +167,9 @@ func _on_code_completion_requested(script_editor:CodeEdit) -> bool:
 		if hide_global_classes:
 			if global_classes.has(display) and not show_global_classes.has(display):
 				continue
-		
-		options_dict[display] = e
+		add_completion_option(script_editor, e)
 	
-	options_dict.merge(cc_options)
-	options = options_dict.values()
-	
-	add_completion_options(options, false)
+	update_completion_options()
 	return true
 
 
@@ -177,9 +177,11 @@ func _get_code_complete_options():
 	var cc_options = {}
 	var options_to_skip = {}
 	
-	#var current_script = EditorInterface.get_script_editor().get_current_script() #^r should be ok to skip this
-	#var current_script_members = _get_script_member_code_complete_options(current_script, "", options_to_skip)
-	#cc_options.merge(current_script_members)
+	var current_script = EditorInterface.get_script_editor().get_current_script() #^r need this to get enum members
+	var current_script_members = _get_script_member_code_complete_options(current_script, "", options_to_skip)
+	for name in current_script_members.keys():
+		options_to_skip[name] = true
+	cc_options.merge(current_script_members)
 	
 	for access_path in imported_classes.keys():
 		var script = imported_classes.get(access_path)
@@ -200,10 +202,10 @@ func _get_script_member_code_complete_options(script:GDScript, access_name:Strin
 	completion_cache[COMP_CHECKED_SCRIPTS][script] = true
 	
 	var cache_key = script.resource_path if script.resource_path != "" else script
-	var cc_options = _get_cached_data(IMPORT_MEMBERS, script.resource_path, data_cache)
+	var cc_options = _get_cached_data(IMPORT_MEMBERS, cache_key, data_cache)
 	if cc_options == null:
 		cc_options = {}
-		cc_options[access_name] = _get_code_complete_dict(CodeEdit.CodeCompletionKind.KIND_CLASS,access_name, access_name, "Object")
+		cc_options[access_name] = get_code_complete_dict(CodeEdit.CodeCompletionKind.KIND_CLASS,access_name, access_name, "Object")
 		options_to_skip[access_name] = true
 		
 		for hint in member_hints:
@@ -240,7 +242,7 @@ func _get_property_options(script:GDScript, access_name:String):
 			continue
 		var data = properties.get(p)
 		var cc_nm = access_name + "." + p if access_name != "" else p
-		cc_options[cc_nm] = _get_code_complete_dict(CodeEdit.CodeCompletionKind.KIND_MEMBER,cc_nm,cc_nm,"property")
+		cc_options[cc_nm] = get_code_complete_dict(CodeEdit.CodeCompletionKind.KIND_MEMBER,cc_nm,cc_nm,"property")
 	return cc_options
 	
 
@@ -262,7 +264,7 @@ func _get_const_options(script:GDScript, access_name:String):
 			icon = "Object"
 		
 		var cc_nm = access_name + "." + c if access_name != "" else c
-		cc_options[cc_nm] = _get_code_complete_dict(CodeEdit.CodeCompletionKind.KIND_CONSTANT,cc_nm,cc_nm,icon)
+		cc_options[cc_nm] = get_code_complete_dict(CodeEdit.CodeCompletionKind.KIND_CONSTANT,cc_nm,cc_nm,icon)
 		
 		if val is GDScript:
 			if imported_class_scripts.has(val) or completion_cache[COMP_CHECKED_SCRIPTS].has(val):
@@ -309,7 +311,7 @@ func _get_method_options(script:GDScript, access_name:String, include_new:bool=f
 			cc_ins = cc_nm
 		else:
 			cc_nm = cc_nm + CALL_WITH_ARGS
-		cc_options[cc_nm] = _get_code_complete_dict(CodeEdit.CodeCompletionKind.KIND_FUNCTION,cc_nm,cc_ins,"method")
+		cc_options[cc_nm] = get_code_complete_dict(CodeEdit.CodeCompletionKind.KIND_FUNCTION,cc_nm,cc_ins,"method")
 	
 	return cc_options
 
@@ -331,7 +333,7 @@ func _get_class_new_method(script:GDScript, access_name:String, methods=null):
 	if has_args:
 		new_call = access_name + ".new" + CALL_WITH_ARGS
 		new_call_ins = access_name + ".new("
-	cc_options[new_call] = _get_code_complete_dict(CodeEdit.CodeCompletionKind.KIND_FUNCTION,new_call,new_call_ins,"constructor")
+	cc_options[new_call] = get_code_complete_dict(CodeEdit.CodeCompletionKind.KIND_FUNCTION,new_call,new_call_ins,"constructor")
 	return cc_options
 
 func _get_signal_options(script:GDScript, access_name:String):
@@ -341,7 +343,7 @@ func _get_signal_options(script:GDScript, access_name:String):
 		if hide_private_members and s.begins_with("_"):
 			continue
 		var cc_nm = access_name + "." + s if access_name != "" else s
-		cc_options[cc_nm] = _get_code_complete_dict(CodeEdit.CodeCompletionKind.KIND_SIGNAL,cc_nm,cc_nm,"signal")
+		cc_options[cc_nm] = get_code_complete_dict(CodeEdit.CodeCompletionKind.KIND_SIGNAL,cc_nm,cc_nm,"signal")
 	return cc_options
 
 func _get_enum_options(script:GDScript, access_name:String):
@@ -351,39 +353,14 @@ func _get_enum_options(script:GDScript, access_name:String):
 		if hide_private_members and e.begins_with("_"):
 			continue
 		var cc_nm = access_name + "." + e if access_name != "" else e
-		cc_options[cc_nm] = _get_code_complete_dict(CodeEdit.CodeCompletionKind.KIND_ENUM,cc_nm,cc_nm,"enum")
+		cc_options[cc_nm] = get_code_complete_dict(CodeEdit.CodeCompletionKind.KIND_ENUM,cc_nm,cc_nm,"enum")
 		
 		var enum_members = enums.get(e)
 		for em in enum_members.keys():
 			var em_nm = cc_nm + "." + em
-			cc_options[em_nm] = _get_code_complete_dict(CodeEdit.CodeCompletionKind.KIND_ENUM,em_nm,em_nm,"enum")
+			cc_options[em_nm] = get_code_complete_dict(CodeEdit.CodeCompletionKind.KIND_ENUM,em_nm,em_nm,"enum")
 	
 	return cc_options
-
-func _get_code_complete_dict(kind:CodeEdit.CodeCompletionKind, display_text, insert_text, icon_name, default_value=null, font_color:Color=Color.LIGHT_GRAY):
-	var icon
-	if icon_name == "constructor":
-		icon = editor_theme.get_icon("MemberConstructor", "EditorIcons")
-	elif icon_name == "const":
-		icon = editor_theme.get_icon("MemberConstant", "EditorIcons")
-	elif icon_name == "property":
-		icon = editor_theme.get_icon("MemberProperty", "EditorIcons")
-	elif icon_name == "signal":
-		icon = editor_theme.get_icon("MemberSignal", "EditorIcons")
-	elif icon_name == "method":
-		icon = editor_theme.get_icon("MemberMethod", "EditorIcons")
-	elif icon_name == "enum":
-		icon = editor_theme.get_icon("Enum", "EditorIcons")
-	else:
-		icon = editor_theme.get_icon(icon_name, "EditorIcons")
-	return {
-		"kind":kind,
-		"display_text":display_text,
-		"insert_text":insert_text,
-		"font_color":font_color,
-		"icon":icon,
-		"default_value":default_value
-	}
 
 
 func _get_script_imports():
@@ -466,6 +443,14 @@ func _get_script_imports():
 	
 	for nm in imported_classes.keys():
 		imported_class_scripts[imported_classes[nm]] = nm
+	
+	var import_data = {
+		"hide_global_classes_setting": hide_global_classes,
+		"show_global_classes": show_global_classes,
+		"imported_classes":imported_classes,
+		"global_classes":global_classes,
+	}
+	set_data("import_data", import_data)
 
 
 func _get_global_and_preloads():
@@ -591,7 +576,7 @@ func _import_hint_autocomplete(current_line_text:String):
 				continue
 			if _name in current_classes:
 				continue
-			var completion = _get_code_complete_dict(CodeEdit.CodeCompletionKind.KIND_CLASS, _name, _name + ",", "Object")
+			var completion = get_code_complete_dict(CodeEdit.CodeCompletionKind.KIND_CLASS, _name, _name + ",", "Object")
 			options.append(completion)
 	elif current_line_text.begins_with(full_show_global_hint):
 		var current_classes = _get_current_classes_of_hint(full_show_global_hint, script_editor)
@@ -602,7 +587,7 @@ func _import_hint_autocomplete(current_line_text:String):
 				continue
 			if _name in hide_global_exemptions:
 				continue
-			var completion = _get_code_complete_dict(CodeEdit.CodeCompletionKind.KIND_CLASS, _name, _name + ",", "Object")
+			var completion = get_code_complete_dict(CodeEdit.CodeCompletionKind.KIND_CLASS, _name, _name + ",", "Object")
 			options.append(completion)
 	elif current_line_text.begins_with(full_p_hint):
 		var current_classes = _get_current_classes_of_hint(full_p_hint, script_editor)
@@ -613,7 +598,7 @@ func _import_hint_autocomplete(current_line_text:String):
 				continue
 			if _name in current_classes:
 				continue
-			var completion = _get_code_complete_dict(CodeEdit.CodeCompletionKind.KIND_CLASS, _name, _name + ",", "Object")
+			var completion = get_code_complete_dict(CodeEdit.CodeCompletionKind.KIND_CLASS, _name, _name + ",", "Object")
 			options.append(completion)
 	
 	return options
@@ -625,6 +610,8 @@ const _SKIP_KEYWORDS = {
 	"break":true,
 	"continue":true,
 	"null":true,
+	"true":true,
+	"false":true,
 	}
 
 const _SKIP_CHARS = {

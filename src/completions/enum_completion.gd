@@ -4,7 +4,6 @@ extends EditorCodeCompletion
 
 const CacheHelper = EditorCodeCompletionSingleton.CacheHelper
 
-
 var show_member_suggestions:= false
 var show_alias_only:=false
 
@@ -47,8 +46,8 @@ func _var_assign() -> bool:
 	var left = assignment_data.get(Assignment.LEFT)
 	var operator = assignment_data.get(Assignment.OPERATOR)
 	var right = assignment_data.get(Assignment.RIGHT)
-	if right != "" and get_word_before_caret() != "":
-		return false
+	#if right != "" and get_word_before_caret() != "":
+		#return false #^ remove so you can type what you want
 	
 	if left.begins_with("var"):
 		var left_typed = assignment_data.get(Assignment.LEFT_TYPED, "")
@@ -72,8 +71,8 @@ func _func_call() -> bool:
 	
 	if current_arg_idx < current_args.size():
 		var arg_text = current_args[current_arg_idx]
-		if arg_text != "":
-			return false
+		#if arg_text != "":
+			#return false #^ remove so you can start typing
 	
 	var external_method = false
 	var access_name = "" # for class body
@@ -204,7 +203,7 @@ func _process_to_enum_data(input_data, force_update:=false):
 
 ## Process member data string or dictionary.
 func _process_input_data(input_data):
-	#print("INPUT DATA ", input_data)
+	print("INPUT DATA ", input_data)
 	if input_data is String:
 		var processed_data = _process_input_data_string(input_data)
 		#print(input_data, " MAIN CALL STRING: ", processed_data)
@@ -230,6 +229,8 @@ func _process_input_data_string(input_data:String):
 	var current_class = get_current_class()
 	if current_class != "":
 		current_script = get_script_member_info_by_path(current_script, current_class, ["const"])
+		if current_script == null:
+			return null
 	
 	if input_data.begins_with("res://"):
 		var gd_idx = input_data.find(".gd.")
@@ -248,7 +249,7 @@ func _process_input_data_string(input_data:String):
 				in_current_class = true #^ will this cause issues?
 		
 		var enum_data = get_script_member_info_by_path(enum_script, enum_access_path, ["const"])
-		if _is_dict_enum(enum_data):
+		if enum_data is Dictionary and _is_dict_enum(enum_data):
 			member_path = enum_access_path
 			if in_current_class:
 				enum_script = null
@@ -465,6 +466,7 @@ func _get_enum_vars(processed_data:Dictionary) -> Array:
 
 
 func _get_member_path_from_data(processed_input:Dictionary, script:GDScript):
+	var t = ALibRuntime.Utils.UProfile.TimeFunction.new("GET PATH",)
 	var enum_data = processed_input.enum_data
 	var enum_script = processed_input.enum_script
 	var access_path = processed_input.member_path
@@ -483,7 +485,6 @@ func _get_member_path_from_data(processed_input:Dictionary, script:GDScript):
 		
 		return enum_class_string
 	
-	
 	if enum_class_string.begins_with(current_script_path):
 		return enum_class_string.get_slice(".gd.", 1)
 	
@@ -492,12 +493,13 @@ func _get_member_path_from_data(processed_input:Dictionary, script:GDScript):
 		return preload_alias
 	
 	
-	# get global path
-	var cached_global_path = _get_cached_data("GlobalPaths", enum_script, data_cache)
-	if cached_global_path != null:
-		#print("CACHED GLOBAL: ", cached_global_path)
-		return cached_global_path
+	t.stop()
+	var global_classes_data = get_global_script_location(enum_script)
+	if global_classes_data == null:
+		print("DONT HAVE GLOBAL")
+		return null
 	
+	print("HAVE GLOBAL")
 	var class_hint = ""
 	var current_state = get_state()
 	if current_state == State.FUNC_ARGS:
@@ -508,25 +510,35 @@ func _get_member_path_from_data(processed_input:Dictionary, script:GDScript):
 		var assignment_data = get_assignment_at_caret()
 		var left_typed = assignment_data.get(Assignment.LEFT_TYPED, "")
 		class_hint = UString.get_member_access_front(left_typed)
+	print(class_hint)
+	var global_member_access_path = ""
+	var global_data = {}
+	if global_classes_data.has(class_hint):
+		global_data = global_classes_data[class_hint]
+	else:
+		var first_class_hint = global_classes_data.keys()[0]
+		global_data = global_classes_data[first_class_hint]
+		class_hint = first_class_hint
 	
-	#^r this won't work with functions that don't have a type before, possibly check func directly?
-	#if class_hint == "": #^ consider this to stop huge lookup times. Most things should be handled by first few checks
-		#return null #^ if not found by now, should have a class hint.
+	var member_access = global_data["member_access"]
+	print("QUICK GRAB")
+	t.stop()
+	return class_hint + "." + member_access + "." + enum_access_path
 	
 	
-	var global_classes = UClassDetail.get_all_global_class_paths()
-	var global_path_data = DataAccessSearch.get_global_access_path_static(enum_script, global_classes, UClassDetail._MEMBER_ARGS, class_hint)
-	if global_path_data != null:
-		global_path_data = global_path_data as Array
-		var global_access_path = global_path_data[0]
-		var global_script = global_path_data[1]
-		var full_global_path = global_access_path + "." + enum_access_path
-		var inh_paths = UClassDetail.script_get_inherited_script_paths(global_script)
-		_store_data("GlobalPaths", enum_script, full_global_path, global_script, data_cache)
-		#print("GOT GLOBAL: ", full_global_path)
-		return full_global_path
-	
-	return null
+	#var global_classes = UClassDetail.get_all_global_class_paths()
+	#var global_path_data = DataAccessSearch.get_global_access_path_static(enum_script, global_classes, UClassDetail._MEMBER_ARGS, class_hint)
+	#if global_path_data != null:
+		#global_path_data = global_path_data as Array
+		#var global_access_path = global_path_data[0]
+		#var global_script = global_path_data[1]
+		#var full_global_path = global_access_path + "." + enum_access_path
+		#var inh_paths = UClassDetail.script_get_inherited_script_paths(global_script)
+		#_store_data("GlobalPaths", enum_script, full_global_path, global_script, data_cache)
+		##print("GOT GLOBAL: ", full_global_path)
+		#return full_global_path
+	#
+	#return null
 
 func _check_inherited_preloads_for_alias(processed_input:Dictionary, script:GDScript):
 	var enum_data = processed_input.enum_data

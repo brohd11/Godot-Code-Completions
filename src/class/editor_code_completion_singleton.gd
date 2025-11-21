@@ -28,6 +28,23 @@ const GDScriptParser = preload("res://addons/code_completions/src/class/gdscript
 
 #^}
 
+#^ defaults
+const EnumCompletion = preload("res://addons/code_completions/src/completions/enum_completion.gd")
+const ImportCodeCompletion = preload("res://addons/code_completions/src/completions/import_code_completion.gd")
+const TypeAssignmentCompletion = preload("res://addons/code_completions/src/completions/type_assignment.gd")
+const HidePrivateCompletion = preload("res://addons/code_completions/src/completions/hide_private.gd")
+const TagCompletion = preload("res://addons/code_completions/src/completions/tag_completion.gd")
+
+var enum_completion:EnumCompletion
+var import_code_completion:ImportCodeCompletion
+var type_assignment_completion:TypeAssignmentCompletion
+var hide_private_completion:HidePrivateCompletion
+var tag_completion:TagCompletion
+
+#^ singletons
+var _singleton_refs = {}
+
+
 const TimeFunction = ALibRuntime.Utils.UProfile.TimeFunction
 
 static func get_singleton_name() -> String:
@@ -36,15 +53,24 @@ static func get_singleton_name() -> String:
 static func get_instance() -> SCRIPT:
 	return _get_instance(SCRIPT)
 
-static func _register_completion(completion, settings:Dictionary):
-	var instance = _register_node(SCRIPT, completion)
+static func register_plugin(plugin):
+	var instance = _register_node(SCRIPT, plugin)
+	instance._register_singletons(plugin)
+	return instance
+
+static func unregister_plugin(plugin:EditorPlugin):
+	var instance = get_instance()
+	instance._unregister_singletons(plugin)
+	instance.unregister_node(plugin)
+
+static func register_completion(completion, settings:Dictionary):
+	var instance = get_instance()
 	instance.code_completions[completion] = settings
 	instance.code_completion_added()
 	return instance
 
 func unregister_completion(completion):
 	code_completions.erase(completion)
-	unregister_node(completion)
 
 
 static func instance_valid():
@@ -61,6 +87,7 @@ enum State {
 	FUNC_ARGS,
 	MEMBER_ACCESS,
 	SCRIPT_BODY,
+	TYPE_ASSIGNMENT,
 }
 
 enum TagLocation {
@@ -86,11 +113,17 @@ enum CompletionCache {
 	FUNC_CALL,
 	FUNC_CALL_TYPED,
 	ASSIGNMENT,
+	TYPE_ASSIGNMENT,
+	CARET_IN_FUNC_DECLARATION,
+	CARET_IN_DICT,
+	CARET_IN_ENUM,
 }
 
 var data_access_search:DataAccessSearch
 var gdscript_parser:GDScriptParser
 
+var global_script_constant_map = {}
+var _global_script_constant_map_data_cache = {}
 
 var hide_private_members:=false
 
@@ -107,17 +140,21 @@ var completion_cache:Dictionary = {}
 var current_state:State = State.NONE
 
 var assignment_regex:RegEx
+var type_assignment_regex:RegEx
 
 func _init(plugin) -> void:
 	_singleton_init()
 	_init_set_settings()
 
+func _all_unregistered_callback():
+	_free_plugins()
+
 func _ready() -> void:
 	await get_tree().create_timer(1).timeout
 	_set_code_edit(null)
 	_connect_editor()
-
-
+	
+	call_on_ready(_init_plugins)
 
 func _singleton_init():
 	_clear_cache()
@@ -125,6 +162,54 @@ func _singleton_init():
 	gdscript_parser = GDScriptParser.new()
 	gdscript_parser.code_completion_singleton = self
 
+
+func _register_singletons(plugin:EditorPlugin):
+	var plugin_section = _singleton_refs.get_or_add(plugin, {})
+	plugin_section["SyntaxPlus"] = SyntaxPlus.register_node(plugin)
+
+func _unregister_singletons(plugin:EditorPlugin):
+	var plugin_section = _singleton_refs.get_or_add(plugin, {})
+	var syntax_plus = plugin_section.get("SyntaxPlus")
+	if is_instance_valid(syntax_plus):
+		syntax_plus.unregister_node(plugin)
+
+
+func _init_plugins() -> void:
+	enum_completion = EnumCompletion.new()
+	import_code_completion = ImportCodeCompletion.new()
+	type_assignment_completion = TypeAssignmentCompletion.new()
+	hide_private_completion = HidePrivateCompletion.new()
+	tag_completion = TagCompletion.new()
+
+func _free_plugins() -> void:
+	if is_instance_valid(enum_completion):
+		enum_completion.clean_up()
+	if is_instance_valid(import_code_completion):
+		import_code_completion.clean_up()
+	if is_instance_valid(type_assignment_completion):
+		type_assignment_completion.clean_up()
+	if is_instance_valid(hide_private_completion):
+		hide_private_completion.clean_up()
+	if is_instance_valid(tag_completion):
+		tag_completion.clean_up()
+
+func register_tag(prefix:String, tag:String, location:TagLocation=TagLocation.ANY):
+	if not peristent_cache[PersistentCache.TAGS].has(prefix):
+		peristent_cache[PersistentCache.TAGS][prefix] = {}
+	
+	if not peristent_cache[PersistentCache.TAGS][prefix].has(tag):
+		peristent_cache[PersistentCache.TAGS][prefix][tag] = location
+	else:
+		print("Tag already registered: %s %s" % [prefix, tag])
+
+func unregister_tag(prefix:String, tag:String):
+	if not peristent_cache[PersistentCache.TAGS].has(prefix):
+		peristent_cache[PersistentCache.TAGS][prefix] = {}
+	
+	if peristent_cache[PersistentCache.TAGS][prefix].has(tag):
+		peristent_cache[PersistentCache.TAGS][prefix].erase(tag)
+	else:
+		print("Tag not present: %s %s" % [prefix, tag])
 
 func clear_cache():
 	_clear_cache()
@@ -137,8 +222,6 @@ func _clear_cache():
 	completion_cache.clear()
 	
 	peristent_cache[PersistentCache.TAGS] = {}
-	#peristent_cache[PersistentCache.GLOBAL_ACCESS_PATHS] = {}
-	
 	script_cache[ScriptCache.STRING_MAPS] = {}
 
 
@@ -163,31 +246,10 @@ func _set_settings():
 	hide_private_members = editor_settings.get_setting(EditorSet.HIDE_PRIVATE_PROP_SETTING)
 	data_access_search.set_global_check_setting(editor_settings.get_setting(EditorSet.GLOBAL_CHECK_SETTING))
 	data_access_search.set_script_alias_setting(editor_settings.get_setting(EditorSet.SCRIPT_ALIAS_SETTING))
-	
-
-func register_tag(prefix:String, tag:String, location:TagLocation=TagLocation.ANY):
-	if not peristent_cache[PersistentCache.TAGS].has(prefix):
-		peristent_cache[PersistentCache.TAGS][prefix] = {}
-	
-	if not peristent_cache[PersistentCache.TAGS][prefix].has(tag):
-		peristent_cache[PersistentCache.TAGS][prefix][tag] = location
-	else:
-		print("Tag already registered: %s %s" % [prefix, tag])
-
-func unregister_tag(prefix:String, tag:String):
-	if not peristent_cache[PersistentCache.TAGS].has(prefix):
-		peristent_cache[PersistentCache.TAGS][prefix] = {}
-	
-	if peristent_cache[PersistentCache.TAGS][prefix].has(tag):
-		peristent_cache[PersistentCache.TAGS][prefix].erase(tag)
-	else:
-		print("Tag not present: %s %s" % [prefix, tag])
 
 
 func code_completion_added():
 	sort_completions()
-
-
 
 func sort_completions():
 	if _sort_queued:
@@ -197,8 +259,9 @@ func sort_completions():
 	
 	var key_priority_dict = {}
 	for editor_code_completion in code_completions.keys():
-		var settings = code_completions.get(editor_code_completion, 100)
-		key_priority_dict[editor_code_completion] = 100
+		var settings = code_completions.get(editor_code_completion, {})
+		var priority = settings.get("priority", 100)
+		key_priority_dict[editor_code_completion] = priority
 	
 	var sorted_dict = USort.sort_priority_dict(key_priority_dict)
 	var new_dict = {}
@@ -242,6 +305,7 @@ func _on_editor_script_changed(script):
 func _on_file_system_changed():
 	var current_script = _get_current_script()
 	_prep_script(current_script)
+	_build_global_script_constant_map()
 
 func _prep_script(script):
 	script_cache.clear()
@@ -259,18 +323,12 @@ func _on_code_completion_requested(script_editor:CodeEdit) -> void:
 	completion_cache.clear()
 	_pre_request_checks(script_editor)
 	
-	var has_tag = _tag_completion(script_editor)
-	if has_tag:
-		return
-	
 	for editor_code_completion in code_completions.keys():
-		var t = TimeFunction.new(str(editor_code_completion.get_script().resource_path.get_file()))
+		#var t = TimeFunction.new(str(editor_code_completion.get_script().resource_path.get_file()))
 		var handled = editor_code_completion._on_code_completion_requested(script_editor)
-		t.stop()
+		#t.stop()
 		if handled:
 			return
-	
-	add_code_completion_options(script_editor)
 
 
 func _pre_request_checks(script_editor:CodeEdit):
@@ -280,94 +338,23 @@ func _pre_request_checks(script_editor:CodeEdit):
 	
 	gdscript_parser.on_completion_requested() #^ this needs to be before for get_current_func to work
 	
+	var in_func_call_check = _in_func_call_check(current_line_text, current_caret_col) #^ check first to populate CARET_IN_FUNC
+	
 	current_state = State.NONE
 	if is_index_in_string(current_caret_col, current_caret_line, script_editor):
 		current_state = State.STRING
 	elif is_index_in_comment(current_caret_col, current_caret_line, script_editor):
 		current_state = State.COMMENT
+	elif _in_type_assignment():
+		current_state = State.TYPE_ASSIGNMENT
 	elif get_word_before_caret().find(".") > -1:
 		current_state = State.MEMBER_ACCESS
-	elif _in_func_call_check(current_line_text, current_caret_col):
+	elif in_func_call_check:
 		current_state = State.FUNC_ARGS
 	elif _get_assignment_at_caret(current_line_text, current_caret_col) != null:
 		current_state = State.ASSIGNMENT
 	elif get_current_func() == GDScriptParser._Keys.CLASS_BODY:
 		current_state = State.SCRIPT_BODY
-
-
-func _tag_completion(script_editor:CodeEdit):
-	if current_state != State.COMMENT:
-		return false
-	
-	var current_line = script_editor.get_caret_line()
-	var caret_col = script_editor.get_caret_column()
-	var current_line_text = script_editor.get_line(current_line)
-	var tags = peristent_cache[PersistentCache.TAGS].keys()
-	if tags.is_empty():
-		return false
-	var string_map = get_string_map(current_line_text)
-	var tag_present = ""
-	var tag_idx = -1
-	for tag in tags:
-		tag_idx = UString.string_safe_rfind(current_line_text, tag, caret_col, string_map.string_mask)
-		if tag_idx > -1:
-			tag_present = tag
-			break
-	if tag_idx == -1:
-		return false
-	
-	var stripped = current_line_text.substr(tag_idx).strip_edges()
-	var parts = stripped.split(" ", false)
-	
-	if parts.size() > 1:
-		if parts.size() == 2 and get_word_before_caret() == "":
-			return false
-		if parts.size() > 2:
-			return false
-	
-	var icon = EditorInterface.get_editor_theme().get_icon("Script", "EditorIcons")
-	var declared_tag_members = peristent_cache[PersistentCache.TAGS].get(tag_present, {})
-	for tag in declared_tag_members.keys():
-		var location = declared_tag_members[tag]
-		if location == TagLocation.START and tag_idx > 0:
-			continue
-		elif location == TagLocation.END and tag_idx == 0:
-			continue
-		script_editor.add_code_completion_option(CodeEdit.KIND_CONSTANT, tag, tag, Color.GRAY, icon)
-	script_editor.update_code_completion_options(false)
-	return true
-
-
-
-func _hide_private_completions(script_editor:CodeEdit, completions:Array):
-	if current_state != State.MEMBER_ACCESS: # only hide when accessing a member, want to see private in own class
-		return completions
-	var word_at_cursor = get_word_before_caret()
-	var last_part = UString.get_member_access_back(word_at_cursor)
-	if last_part.begins_with("_"):
-		return completions
-	
-	var valid = []
-	for option in completions:
-		var display_text = option.get("display_text")
-		if display_text.begins_with("_"):
-			continue
-		valid.append(option)
-	return valid
-
-func add_code_completion_options(script_editor:CodeEdit, options=null, hide_private=null):
-	if hide_private == null:
-		hide_private = hide_private_members
-	if options == null:
-		options = script_editor.get_code_completion_options()
-	
-	if hide_private:
-		options = _hide_private_completions(script_editor, options)
-	
-	for o in options:
-		script_editor.add_code_completion_option(o.kind, o.display_text, o.insert_text, o.font_color, o.icon, o.default_value)
-	script_editor.update_code_completion_options(false)
-
 
 
 #region API
@@ -413,6 +400,9 @@ func get_script_member_info_by_path(script:GDScript, member_path:String, member_
 
 func get_script_alias(access_path:String, data=null):
 	return gdscript_parser.data_access_search.check_for_script_alias(access_path, data)
+
+func get_global_script_location(script:GDScript):
+	return global_script_constant_map.get(script)
 
 #endregion
 
@@ -494,20 +484,23 @@ func _get_assignment_at_caret(line_text: String, caret_col: int):
 
 
 #region Func Call
-
+## Return func call state. Sets CARET_IN_FUNC cache status. Caret can be in func parentheses but not in func call state.
 func _in_func_call_check(current_line_text:String, current_caret_col:int):
 	var stripped = current_line_text.strip_edges()
 	var in_declar = stripped.begins_with("func") or stripped.begins_with("static func")
+	if in_declar:
+		completion_cache[CompletionCache.CARET_IN_FUNC_DECLARATION] = true
+	
 	var func_data = _get_func_call_data(current_line_text, current_caret_col)
 	if func_data.is_empty() or in_declar:
 		completion_cache[CompletionCache.CARET_IN_FUNC_CALL] = false
 		return false
-	var arg_text = func_data[EditorCodeCompletion.FuncCall.ARGS][func_data[EditorCodeCompletion.FuncCall.ARG_INDEX]]
-	if arg_text.rfind("=", current_caret_col) > -1:
-		completion_cache[CompletionCache.CARET_IN_FUNC_CALL] = false
-		return false
 	
 	completion_cache[CompletionCache.CARET_IN_FUNC_CALL] = true
+	completion_cache[CompletionCache.CARET_IN_FUNC_DECLARATION] = false
+	var arg_text = func_data[EditorCodeCompletion.FuncCall.ARGS][func_data[EditorCodeCompletion.FuncCall.ARG_INDEX]]
+	if arg_text.rfind("=", current_caret_col) > -1:
+		return false
 	return true
 
 func get_func_call_data(infer_type:=false):
@@ -636,6 +629,29 @@ func _parse_identifier_at_position(text:String, start_pos:int, string_map):
 
 #endregion
 
+func _in_type_assignment():
+	var script_editor = _get_code_edit() as CodeEdit
+	var caret_col = script_editor.get_caret_column()
+	if caret_col == 0:
+		return false
+	var line_text = script_editor.get_line(script_editor.get_caret_line())
+	
+	var relevant_text = line_text.substr(0, caret_col).strip_edges()
+	if relevant_text == "":
+		return false
+	
+	if not is_instance_valid(type_assignment_regex) or true: #ALERT REMEMBER TRUE
+		type_assignment_regex = RegEx.new()
+		var pattern = "(?:\\s*is\\s+|\\s*as\\s+|\\s*extends\\s+|[\\w.]+\\s*:\\s*|\\->\\s*)([\\w.]*)$"
+		type_assignment_regex.compile(pattern)
+	
+	var _match = type_assignment_regex.search(relevant_text)
+	if _match:
+		completion_cache[CompletionCache.TYPE_ASSIGNMENT] = _match.get_string(1)
+		return true
+	else:
+		return false
+
 func get_word_before_caret():
 	if completion_cache.has(CompletionCache.WORD_BEFORE_CARET):
 		return completion_cache[CompletionCache.WORD_BEFORE_CARET]
@@ -661,6 +677,7 @@ func get_char_before_caret():
 		i -= 1
 	completion_cache[CompletionCache.CHAR_BEFORE_CARET] = char
 	#print("CHAR BEFORE CARET: ", char)
+	
 	return char
 
 
@@ -682,7 +699,29 @@ func is_index_in_string(column:int=-1, line:int=-1, code_edit=null):
 		column = code_edit.get_caret_column()
 	return code_edit.is_in_string(line, column) > -1
 
+func is_caret_in_dict():
+	if completion_cache.has(CompletionCache.CARET_IN_DICT):
+		return completion_cache[CompletionCache.CARET_IN_DICT]
+	_check_caret_in_dict_or_enum()
+	return completion_cache[CompletionCache.CARET_IN_DICT]
 
+func is_caret_in_enum():
+	if completion_cache.has(CompletionCache.CARET_IN_ENUM):
+		return completion_cache[CompletionCache.CARET_IN_ENUM]
+	_check_caret_in_dict_or_enum()
+	return completion_cache[CompletionCache.CARET_IN_ENUM]
+
+func _check_caret_in_dict_or_enum():
+	var in_dict = gdscript_parser.is_caret_in_dict_or_enum()
+	if in_dict == 0:
+		completion_cache[CompletionCache.CARET_IN_DICT] = false
+		completion_cache[CompletionCache.CARET_IN_ENUM] = false
+	elif in_dict == 1:
+		completion_cache[CompletionCache.CARET_IN_DICT] = true
+		completion_cache[CompletionCache.CARET_IN_ENUM] = false
+	elif in_dict == 2:
+		completion_cache[CompletionCache.CARET_IN_DICT] = false
+		completion_cache[CompletionCache.CARET_IN_ENUM] = true
 
 func get_string_map(text:String, mode:UString.StringMap.Mode=UString.StringMap.Mode.FULL, print_err:=false) -> UString.StringMap:
 	if script_cache[ScriptCache.STRING_MAPS].has(text):
@@ -718,6 +757,45 @@ func _get_cached_data_in_section(section, key, data_cache:Dictionary):
 	var section_data = data_cache.get(section)
 	
 	return CacheHelper.get_cached_data(key, section_data)
+
+
+
+
+
+func _build_global_script_constant_map():
+	global_script_constant_map.clear()
+	var global_classes = UClassDetail.get_all_global_class_paths()
+	for _name in global_classes.keys():
+		var global_path = global_classes.get(_name)
+		var cached = CacheHelper.get_cached_data(global_path, _global_script_constant_map_data_cache)
+		if cached != null:
+			for script in cached.keys():
+				if not global_script_constant_map.has(script):
+					global_script_constant_map[script] = {}
+				global_script_constant_map[script].merge(cached[script])
+			continue
+		
+		var global_script = load(global_path)
+		var class_hint = _name
+		var temp_cache_dict = {}
+		var preloads = UClassDetail.script_get_preloads(global_script, true, true)
+		for p_member_access in preloads.keys():
+			var script = preloads[p_member_access]
+			if not global_script_constant_map.has(script):
+				global_script_constant_map[script] = {}
+			if not temp_cache_dict.has(script):
+				temp_cache_dict[script] = {}
+			
+			var hint_data = {
+				"global_script": global_script,
+				"member_access": p_member_access
+			}
+			global_script_constant_map[script][class_hint] = hint_data
+			temp_cache_dict[script][class_hint] = hint_data
+		
+		var global_inh_paths = UClassDetail.script_get_inherited_script_paths(global_script)
+		CacheHelper.store_data(global_path, temp_cache_dict, _global_script_constant_map_data_cache, global_inh_paths)
+
 
 
 class EditorSet:
