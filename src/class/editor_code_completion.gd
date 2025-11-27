@@ -135,8 +135,8 @@ func get_word_before_caret():
 func get_char_before_caret():
 	return singleton.get_char_before_caret()
 
-func add_completion_options(options:Array, hide_private=null):
-	singleton.add_code_completion_options(options, hide_private)
+#func add_completion_options(options:Array, hide_private=null):
+	#singleton.add_code_completion_options(options, hide_private)
 
 func add_completion_option(script_editor:CodeEdit, option_dict:Dictionary) -> void:
 	script_editor.add_code_completion_option(option_dict.kind, option_dict.display_text,

@@ -712,6 +712,7 @@ func is_caret_in_enum():
 	return completion_cache[CompletionCache.CARET_IN_ENUM]
 
 func _check_caret_in_dict_or_enum():
+	
 	var in_dict = gdscript_parser.is_caret_in_dict_or_enum()
 	if in_dict == 0:
 		completion_cache[CompletionCache.CARET_IN_DICT] = false

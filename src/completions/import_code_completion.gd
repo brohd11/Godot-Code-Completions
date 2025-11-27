@@ -114,7 +114,9 @@ func _on_code_completion_requested(script_editor:CodeEdit) -> bool:
 		var current_line_text = script_editor.get_line(caret_line)
 		var import_hint_options = _import_hint_autocomplete(current_line_text)
 		if not import_hint_options.is_empty():
-			add_completion_options(import_hint_options)
+			for o in import_hint_options:
+				add_completion_option(script_editor, o)
+			update_completion_options()
 			return true
 		return false
 	elif current_state == State.STRING:
@@ -178,6 +180,8 @@ func _get_code_complete_options():
 	var options_to_skip = {}
 	
 	var current_script = EditorInterface.get_script_editor().get_current_script() #^r need this to get enum members
+	if current_script == null:
+		return cc_options
 	var current_script_members = _get_script_member_code_complete_options(current_script, "", options_to_skip)
 	for name in current_script_members.keys():
 		options_to_skip[name] = true
@@ -355,7 +359,9 @@ func _get_enum_options(script:GDScript, access_name:String):
 		var cc_nm = access_name + "." + e if access_name != "" else e
 		cc_options[cc_nm] = get_code_complete_dict(CodeEdit.CodeCompletionKind.KIND_ENUM,cc_nm,cc_nm,"enum")
 		
-		var enum_members = enums.get(e)
+		var enum_members = get_enum_members(e) #^ check if in current script, if so parse directly
+		if enum_members == null:
+			enum_members = enums.get(e)
 		for em in enum_members.keys():
 			var em_nm = cc_nm + "." + em
 			cc_options[em_nm] = get_code_complete_dict(CodeEdit.CodeCompletionKind.KIND_ENUM,em_nm,em_nm,"enum")

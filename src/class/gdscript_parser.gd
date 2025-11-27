@@ -88,7 +88,8 @@ func get_func_args_and_return(_class:String, _func:String, infer_types:=false):
 	
 	var func_data = body_vars.get(_func, {})
 	var new_data = get_member_declaration(_func, func_data)
-	
+	if new_data == null:
+		return {}
 	if infer_types:
 		var args = new_data.get(_Keys.FUNC_ARGS, {})
 		for _nm in args.keys():
@@ -1051,7 +1052,14 @@ func _check_script_source_member_valid(first_var:String, _class:String):
 	var var_type = data.get(_Keys.VAR_TYPE)
 	var indent = data.get(_Keys.INDENT)
 	
-	var source_snapshot = _get_member_declaration_from_text(access_name, current_script.source_code, indent, var_type)
+	var script_text = _get_current_script_as_text()
+	
+	#^ alternate use the file's contents. This is because the source code get's updated on script change 
+	#^ but doesn't actually seem to have updated vars when calling script functions
+	#var source_snapshot = _get_member_declaration_from_text(access_name, current_script.source_code, indent, var_type)
+	var t = ALibRuntime.Utils.UProfile.TimeFunction.new("get declaration")
+	var source_snapshot = _get_member_declaration_from_text(access_name, script_text, indent, var_type)
+	t.stop()
 	if snapshot == source_snapshot:
 		if _class != "":
 			current_script = get_script_member_info_by_path(current_script, _class, ["const"], false)
@@ -1409,6 +1417,22 @@ func _is_class_name_valid(_class_name, check_global:=true):
 			return true
 	return false
 
+func _get_current_script_as_text():
+	var current_script = _get_current_script()
+	var current_path = current_script.resource_path
+	if not FileAccess.file_exists(current_path):
+		return ""
+	var scripts_as_text_section = data_cache.get_or_add(_Keys.SCRIPTS_AS_TEXT, {})
+	var script_as_text = CacheHelper.get_cached_data(current_path, scripts_as_text_section)
+	if script_as_text != null:
+		return script_as_text
+	
+	var file_access = FileAccess.open(current_path, FileAccess.READ)
+	var text = file_access.get_as_text()
+	CacheHelper.store_data(current_path, text, scripts_as_text_section, [current_path])
+	return text
+
+
 #^ utils - would put this in singleton but don't want to copy text again
 ## Return int, 0=false, 1=dict, 2=enum 
 func is_caret_in_dict_or_enum():
@@ -1460,6 +1484,7 @@ class _Keys:
 	# data cache keys
 	const SCRIPT_PRELOAD_MAP = &"ScriptPreloadMap"
 	const SCRIPT_INHERITED_MEMBERS = &"ScriptInheritedMembers"
+	const SCRIPTS_AS_TEXT = &"ScriptsAsText"
 	
 	# code completion keys
 	const SCRIPT_SOURCE_CHECK = &"ScriptSourceChecks"
