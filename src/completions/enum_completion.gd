@@ -4,6 +4,7 @@ extends EditorCodeCompletion
 
 const CacheHelper = EditorCodeCompletionSingleton.CacheHelper
 
+var enum_enable:= false
 var show_member_suggestions:= false
 var show_alias_only:=false
 
@@ -16,6 +17,8 @@ func _singleton_ready():
 
 func _init_set_settings():
 	var ed_settings = EditorInterface.get_editor_settings()
+	if not ed_settings.has_setting(EditorSet.ENUM_ENABLE):
+		ed_settings.set_setting(EditorSet.ENUM_ENABLE, false)
 	if not ed_settings.has_setting(EditorSet.SHOW_MEMBER_SUGGESTIONS):
 		ed_settings.set_setting(EditorSet.SHOW_MEMBER_SUGGESTIONS, false)
 	if not ed_settings.has_setting(EditorSet.SHOW_ALIAS_ONLY):
@@ -26,10 +29,13 @@ func _init_set_settings():
 
 func _set_settings():
 	var ed_settings = EditorInterface.get_editor_settings()
+	enum_enable = ed_settings.get_setting(EditorSet.ENUM_ENABLE)
 	show_member_suggestions = ed_settings.get_setting(EditorSet.SHOW_MEMBER_SUGGESTIONS)
 	show_alias_only = ed_settings.get(EditorSet.SHOW_ALIAS_ONLY)
 
 func _on_code_completion_requested(script_editor:CodeEdit) -> bool:
+	if not enum_enable:
+		return false
 	var current_state := get_state()
 	if current_state == State.ASSIGNMENT:
 		var a:bool = _var_assign()
@@ -655,5 +661,6 @@ func _is_property_info_enum(data:Dictionary):
 	return false
 
 class EditorSet:
+	const ENUM_ENABLE = &"plugin/code_completion/enum/enable"
 	const SHOW_MEMBER_SUGGESTIONS = &"plugin/code_completion/enum/show_member_suggestions"
 	const SHOW_ALIAS_ONLY = &"plugin/code_completion/enum/show_alias_only"

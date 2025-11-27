@@ -1,5 +1,7 @@
 #! import-p UString,UClassDetail,
 
+const PLUGIN_EXPORTED = false
+
 const UFile = preload("res://addons/addon_lib/brohd/alib_runtime/utils/src/u_file.gd")
 const UClassDetail = preload("res://addons/addon_lib/brohd/alib_editor/utils/src/u_class_detail.gd")
 const UString = preload("res://addons/addon_lib/brohd/alib_runtime/utils/src/u_string.gd")
@@ -627,15 +629,18 @@ func get_var_type(var_name:String, _func=null, _class=null):
 					break
 			
 			var working_func_call = final_type_hint + "." + part
-			print("WORK ", working_func_call)
+			if not PLUGIN_EXPORTED:
+				print("WORK ", working_func_call)
 			var member_info = get_script_member_info_by_path(current_script, working_func_call)
 			if member_info == null:
-				printerr("COULD NOT FIND MEMBER INFO: ", working_func_call)
+				if not PLUGIN_EXPORTED:
+					printerr("COULD NOT FIND MEMBER INFO: ", working_func_call)
 				break
 			
 			var type = property_info_to_type(member_info) #^r can I clean this up a bit?
 			if type == "": #^ is this ok? For if an enum is end of string, or other non property member
-				printerr("type is blank")
+				if not PLUGIN_EXPORTED:
+					printerr("type is blank")
 				break
 			elif type.begins_with("res://"):
 				final_type_hint = type
@@ -669,7 +674,8 @@ func _get_var_type(var_name:String, _func, _class):
 	var type_hint = _get_raw_type(var_name, _func, _class)
 	if type_hint == "":
 		return "" #^ return empty string so a local var will not trigger a body var in lookup
-	print("RAW ", type_hint)
+	if not PLUGIN_EXPORTED:
+		print("RAW ", type_hint)
 	type_hint = _get_type_hint(type_hint, _class, _func)
 	if type_hint == "":
 		return var_name
@@ -685,7 +691,8 @@ func _get_raw_type(var_name:String, _func:String, _class:String):
 	var local_vars = vars_dict.local
 	var in_body_vars = in_body_valid > 0
 	#^ Vars are valid at this point.
-	#print("GET RAW TYPE ", var_name)
+	if not PLUGIN_EXPORTED:
+		print("GET RAW TYPE ", var_name)
 	if var_name.find("(") > -1: #^ this seems to only trigger with functions that are not in the source code yet
 		var_name = var_name.substr(0, var_name.find("("))
 		var func_return = _get_func_return_type(var_name, body_vars)
@@ -705,7 +712,8 @@ func _get_raw_type(var_name:String, _func:String, _class:String):
 		if dec_line <= script_editor.get_caret_line(): # if not, it may be body var
 			var member_data = get_member_declaration(var_name, data)
 			if member_data == null:
-				printerr("Could not get: ", var_name)
+				if not PLUGIN_EXPORTED:
+					printerr("Could not get: ", var_name)
 				return ""
 			return member_data.get(_Keys.TYPE, "")
 	
@@ -713,7 +721,8 @@ func _get_raw_type(var_name:String, _func:String, _class:String):
 		var data = body_vars.get(var_name)
 		var member_data = get_member_declaration(var_name, data)
 		if member_data == null:
-			printerr("Could not get: ", var_name)
+			if not PLUGIN_EXPORTED:
+				printerr("Could not get: ", var_name)
 			return var_name
 		return member_data.get(_Keys.TYPE, "")
 	
@@ -734,7 +743,8 @@ func _get_type_hint(type_hint:String, _class:String, _func:String):
 	var in_body_vars = in_body_valid > 0
 	var in_local_vars = local_vars.has(access_name)
 	#^ Vars are valid at this point.
-	print("GET TYPE HINT ", type_hint)
+	if not PLUGIN_EXPORTED:
+		print("GET TYPE HINT ", type_hint)
 	if type_hint.find(" as ") > -1:
 		type_hint = type_hint.get_slice(" as ", 1).strip_edges()
 	
@@ -816,7 +826,8 @@ func _get_inherited_member_type(var_name:String):
 		current_script = get_script_member_info_by_path(current_script, current_class)
 		if current_script is not GDScript:
 			return var_name
-		printerr("GET INHERITED INNER CLASS: ", current_script.resource_path)
+		if not PLUGIN_EXPORTED:
+			printerr("GET INHERITED INNER CLASS: ", current_script.resource_path)
 	
 	var inherited_members = _get_script_inherited_members(current_script)
 	var member_info = inherited_members.get(var_name)
@@ -1000,7 +1011,8 @@ func _check_var_in_body_valid(var_name, _class):
 				#return 0
 		var valid_declaration = check_member_declaration_valid(var_name, data)
 		if not valid_declaration:
-			printerr("TRIGGERING REBUILD")
+			if not PLUGIN_EXPORTED:
+				printerr("TRIGGERING REBUILD")
 			_map_script_members() # signal dirty?
 			_set_current_func_and_class(_get_code_edit().get_caret_line())
 			return 2
@@ -1043,7 +1055,8 @@ func _check_script_source_member_valid(first_var:String, _class:String):
 	var local_vars = vars_dict.local
 	var data = body_vars.get(access_name)
 	if data == null:
-		printerr("IN BODY VAR BUT DATA NULL: ", access_name)
+		if not PLUGIN_EXPORTED:
+			printerr("IN BODY VAR BUT DATA NULL: ", access_name)
 		completion_cache[_Keys.SCRIPT_SOURCE_CHECK][_class][access_name] = null
 		return null
 	
@@ -1160,7 +1173,8 @@ func _get_member_declaration_from_text(var_name:String, text:String, indent:int,
 	var var_declaration_idx:int = -1
 	if reverse:
 		if text_source == &"source":
-			printerr("Can't run reverse member declaration search on source code. Need caret char from code edit method.")
+			if not PLUGIN_EXPORTED:
+				printerr("Can't run reverse member declaration search on source code. Need caret char from code edit method.")
 			return ""
 		#var caret_idx = text.find("\uFFFF") # from cursor check behind for latest
 		var caret_idx = _current_code_edit_text_caret
@@ -1269,7 +1283,8 @@ func _property_info_to_type(property_info) -> String:
 		if const_name:
 			return const_name
 	
-	printerr("UNHANDLED PROPERTY INFO OR UNFOUND: ", property_info)
+	if not PLUGIN_EXPORTED:
+		printerr("UNHANDLED PROPERTY INFO OR UNFOUND: ", property_info)
 	return ""
 
 
@@ -1332,7 +1347,8 @@ func _resolve_full_type(var_name:String, constants_dict:Dictionary) -> String:
 	var visited_aliases = {}
 	while constants_dict.has(current_alias):
 		if visited_aliases.has(current_alias): # If we have seen this alias before, we're in a loop.
-			#printerr("Cycle detected in constant resolution! Alias '", current_alias, "' is part of a loop.")
+			if not PLUGIN_EXPORTED:
+				printerr("Cycle detected in constant resolution! Alias '", current_alias, "' is part of a loop.")
 			return "[CYCLE_ERROR:" + current_alias + "]" + suffix
 		visited_aliases[current_alias] = true
 		

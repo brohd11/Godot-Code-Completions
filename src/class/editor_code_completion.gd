@@ -24,7 +24,7 @@ static func unregister_plugin(plugin:EditorPlugin):
 func _init() -> void:
 	var settings = _get_completion_settings()
 	if not EditorCodeCompletionSingleton.instance_valid():
-		print("Register plugin with 'EditorCodeCompletion.register_plugin()' before instancing.")
+		printerr("Register plugin with 'EditorCodeCompletion.register_plugin()' before instancing.")
 		return
 	
 	singleton = EditorCodeCompletionSingleton.get_instance()

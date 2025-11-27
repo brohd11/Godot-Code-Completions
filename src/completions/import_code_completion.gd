@@ -72,11 +72,11 @@ func _singleton_ready():
 func _init_set_settings():
 	var editor_settings = EditorInterface.get_editor_settings()
 	if not editor_settings.has_setting(Settings.HIDE_GLOBAL_SETTING):
-		editor_settings.set_setting(Settings.HIDE_GLOBAL_SETTING, true)
+		editor_settings.set_setting(Settings.HIDE_GLOBAL_SETTING, false)
 	if not editor_settings.has_setting(Settings.HIDE_GLOBAL_EXEMP_SETTING):
 		editor_settings.set_setting(Settings.HIDE_GLOBAL_EXEMP_SETTING, [])
 	if not editor_settings.has_setting(Settings.HIDE_PRIVATE_PROP_SETTINGS):
-		editor_settings.set_setting(Settings.HIDE_PRIVATE_PROP_SETTINGS, true)
+		editor_settings.set_setting(Settings.HIDE_PRIVATE_PROP_SETTINGS, false)
 	
 	var hide_global_exemp = Settings.HIDE_GLOBAL_EXEMP_INFO.duplicate()
 	hide_global_exemp["hint_string"] = "%d:" % [TYPE_STRING]
