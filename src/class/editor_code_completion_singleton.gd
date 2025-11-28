@@ -324,9 +324,9 @@ func _on_code_completion_requested(script_editor:CodeEdit) -> void:
 	_pre_request_checks(script_editor)
 	
 	for editor_code_completion in code_completions.keys():
-		#var t = TimeFunction.new(str(editor_code_completion.get_script().resource_path.get_file()))
+		var t = TimeFunction.new(str(editor_code_completion.get_script().resource_path.get_file()))
 		var handled = editor_code_completion._on_code_completion_requested(script_editor)
-		#t.stop()
+		t.stop()
 		if handled:
 			return
 
@@ -640,9 +640,9 @@ func _in_type_assignment():
 	if relevant_text == "":
 		return false
 	
-	if not is_instance_valid(type_assignment_regex) or true: #ALERT REMEMBER TRUE
+	if not is_instance_valid(type_assignment_regex):
 		type_assignment_regex = RegEx.new()
-		var pattern = "(?:\\s*is\\s+|\\s*as\\s+|\\s*extends\\s+|[\\w.]+\\s*:\\s*|\\->\\s*)([\\w.]*)$"
+		var pattern = "(?:\\s*is not\\s+|\\s*is\\s+|\\s*as\\s+|\\s*extends\\s+|[\\w.]+\\s*:\\s*|\\->\\s*)([\\w.]*)$"
 		type_assignment_regex.compile(pattern)
 	
 	var _match = type_assignment_regex.search(relevant_text)

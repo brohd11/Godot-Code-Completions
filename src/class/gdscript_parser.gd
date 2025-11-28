@@ -672,10 +672,10 @@ func _get_var_type(var_name:String, _func, _class):
 			return prop_string
 	
 	var type_hint = _get_raw_type(var_name, _func, _class)
-	if type_hint == "":
-		return "" #^ return empty string so a local var will not trigger a body var in lookup
 	if not PLUGIN_EXPORTED:
 		print("RAW ", type_hint)
+	if type_hint == "":
+		return "" #^ return empty string so a local var will not trigger a body var in lookup
 	type_hint = _get_type_hint(type_hint, _class, _func)
 	if type_hint == "":
 		return var_name
@@ -985,8 +985,7 @@ func _get_in_scope_body_and_local_vars(_class, _func): #^ possibly pass a varnam
 		if declaration == null:
 			continue
 		var indent = data.get(_Keys.INDENT)
-		#if indent > current_access_indent and declaration < current_branch_start:
-		if indent > current_line_indent and declaration < current_branch_start: #^ switch to current line indent, I believe correct
+		if indent > current_line_indent and declaration < current_branch_start:
 			continue
 		if declaration <= current_line:
 			in_scope_vars[var_name] = data
@@ -1073,10 +1072,18 @@ func _check_script_source_member_valid(first_var:String, _class:String):
 	var t = ALibRuntime.Utils.UProfile.TimeFunction.new("get declaration")
 	var source_snapshot = _get_member_declaration_from_text(access_name, script_text, indent, var_type)
 	t.stop()
+	
 	if snapshot == source_snapshot:
 		if _class != "":
 			current_script = get_script_member_info_by_path(current_script, _class, ["const"], false)
 		var property_info = get_script_member_info_by_path(current_script, access_name)
+		
+		if property_info is Dictionary: # if class name is not in line, it is likely a non global class inheriting
+			var prop_class = property_info.get("class_name", "") # set to null to trigger scan
+			if ClassDB.class_exists(prop_class):
+				if snapshot.find(prop_class) == -1:
+					property_info = null
+		
 		completion_cache[_Keys.SCRIPT_SOURCE_CHECK][_class][access_name] = property_info
 		return property_info
 	

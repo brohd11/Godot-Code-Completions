@@ -627,6 +627,7 @@ const _SKIP_CHARS = {
 const _SKIP_DECLARTIONS = [
 	"static ",
 	"func ",
+	"const",
 	"var ",
 	"enum",
 	"class ",

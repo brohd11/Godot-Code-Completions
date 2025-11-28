@@ -446,30 +446,6 @@ func _get_enum_vars(processed_data:Dictionary) -> Array:
 	#t.stop()
 	return option_dict.keys()
 
-#^r think this func is obsolete
-#func _func_comparison(comp_text:String):
-	#printerr("FUNC COMP")
-	#var current_script = get_current_script()
-	#var string_map = get_string_map(comp_text)
-	#var count = comp_text.length() - 1
-	#while count >= 0:
-		#var char = comp_text[count]
-		#if char == ")":
-			#if string_map.bracket_map.has(count):
-				#count = string_map.bracket_map[count]
-				#break
-			#else:
-				#print("BRACK MAP DOESNT HAVE: ", count, " : ", string_map.bracket_map, " ", string_map.string)
-		#count -= 1
-	#
-	#var func_name = comp_text.substr(0, count)
-	#var member_info = UClassDetail.get_member_info_by_path(current_script, func_name)
-	#if member_info != null:
-		#var return_info = member_info.get("return") # looking for enum data
-		#if return_info != null:
-			#return return_info
-	#return comp_text
-
 
 func _get_member_path_from_data(processed_input:Dictionary, script:GDScript):
 	var t = ALibRuntime.Utils.UProfile.TimeFunction.new("GET PATH",)
@@ -530,21 +506,7 @@ func _get_member_path_from_data(processed_input:Dictionary, script:GDScript):
 	print("QUICK GRAB")
 	t.stop()
 	return class_hint + "." + member_access + "." + enum_access_path
-	
-	
-	#var global_classes = UClassDetail.get_all_global_class_paths()
-	#var global_path_data = DataAccessSearch.get_global_access_path_static(enum_script, global_classes, UClassDetail._MEMBER_ARGS, class_hint)
-	#if global_path_data != null:
-		#global_path_data = global_path_data as Array
-		#var global_access_path = global_path_data[0]
-		#var global_script = global_path_data[1]
-		#var full_global_path = global_access_path + "." + enum_access_path
-		#var inh_paths = UClassDetail.script_get_inherited_script_paths(global_script)
-		#_store_data("GlobalPaths", enum_script, full_global_path, global_script, data_cache)
-		##print("GOT GLOBAL: ", full_global_path)
-		#return full_global_path
-	#
-	#return null
+
 
 func _check_inherited_preloads_for_alias(processed_input:Dictionary, script:GDScript):
 	var enum_data = processed_input.enum_data
