@@ -2,7 +2,7 @@ extends Singleton.RefCount
 #! remote
 #! import-p UString,UClassDetail,
 
-const SCRIPT = preload("res://addons/code_completions/src/class/editor_code_completion_singleton.gd") #! ignore-remote
+const SCRIPT = preload("res://addons/code_completions/src/class/editor_code_completion_singleton.gd")
 
 const UClassDetail = preload("res://addons/addon_lib/brohd/alib_editor/utils/src/u_class_detail.gd")
 const USort = preload("res://addons/addon_lib/brohd/alib_runtime/utils/src/u_sort.gd")
@@ -324,9 +324,9 @@ func _on_code_completion_requested(script_editor:CodeEdit) -> void:
 	_pre_request_checks(script_editor)
 	
 	for editor_code_completion in code_completions.keys():
-		var t = TimeFunction.new(str(editor_code_completion.get_script().resource_path.get_file()))
+		#var t = TimeFunction.new(str(editor_code_completion.get_script().resource_path.get_file()))
 		var handled = editor_code_completion._on_code_completion_requested(script_editor)
-		t.stop()
+		#t.stop()
 		if handled:
 			return
 
