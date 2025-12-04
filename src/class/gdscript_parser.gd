@@ -61,6 +61,9 @@ func _on_text_changed():
 
 
 func on_completion_requested():
+	if not is_instance_valid(_current_code_edit):
+		_get_code_edit()
+	
 	_current_code_edit_text = _current_code_edit.get_text_for_code_completion()
 	_current_code_edit_text_caret = _current_code_edit_text.find("\uFFFF")
 	

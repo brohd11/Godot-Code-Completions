@@ -2,7 +2,7 @@ extends Singleton.RefCount
 #! remote
 #! import-p UString,UClassDetail,
 
-const SCRIPT = preload("res://addons/code_completions/src/class/editor_code_completion_singleton.gd")
+const PE_STRIP_CAST_SCRIPT = preload("res://addons/code_completions/src/class/editor_code_completion_singleton.gd")
 
 const UClassDetail = preload("res://addons/addon_lib/brohd/alib_editor/utils/src/u_class_detail.gd")
 const USort = preload("res://addons/addon_lib/brohd/alib_runtime/utils/src/u_sort.gd")
@@ -50,11 +50,11 @@ const TimeFunction = ALibRuntime.Utils.UProfile.TimeFunction
 static func get_singleton_name() -> String:
 	return "EditorCodeCompletion"
 
-static func get_instance() -> SCRIPT:
-	return _get_instance(SCRIPT)
+static func get_instance() -> PE_STRIP_CAST_SCRIPT:
+	return _get_instance(PE_STRIP_CAST_SCRIPT)
 
 static func register_plugin(plugin):
-	var instance = _register_node(SCRIPT, plugin)
+	var instance = _register_node(PE_STRIP_CAST_SCRIPT, plugin)
 	instance._register_singletons(plugin)
 	return instance
 
@@ -74,10 +74,10 @@ func unregister_completion(completion):
 
 
 static func instance_valid():
-	return _instance_valid(SCRIPT)
+	return _instance_valid(PE_STRIP_CAST_SCRIPT)
 
 static func call_on_ready(callable:Callable, printerr:=false) -> void:
-	_call_on_ready(SCRIPT, callable, printerr)
+	_call_on_ready(PE_STRIP_CAST_SCRIPT, callable, printerr)
 
 enum State {
 	NONE,

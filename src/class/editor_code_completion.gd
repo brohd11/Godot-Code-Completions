@@ -15,9 +15,11 @@ var editor_theme
 ## Holds registered tags to unregister on clean up. Not to be modified.
 var _tags = {}
 
+## Register plugin to EditorCodeCompletionSingleton and any other singletons it uses.
 static func register_plugin(plugin:EditorPlugin):
 	return EditorCodeCompletionSingleton.register_plugin(plugin)
 
+## Unregister plugin to EditorCodeCompletionSingleton and any other singletons it uses.
 static func unregister_plugin(plugin:EditorPlugin):
 	EditorCodeCompletionSingleton.unregister_plugin(plugin)
 
@@ -200,9 +202,9 @@ func get_code_complete_dict(kind:CodeEdit.CodeCompletionKind, display_text, inse
 
 
 func get_current_script():
-	return singleton._current_script
+	return singleton._get_current_script()
 func get_code_edit():
-	return singleton._current_code_edit
+	return singleton._get_code_edit()
 
 class Assignment:
 	const LEFT = &"left"
