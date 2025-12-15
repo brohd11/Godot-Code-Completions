@@ -209,7 +209,7 @@ func _process_to_enum_data(input_data, force_update:=false):
 
 ## Process member data string or dictionary.
 func _process_input_data(input_data):
-	print("INPUT DATA ", input_data)
+	#print("INPUT DATA ", input_data)
 	if input_data is String:
 		var processed_data = _process_input_data_string(input_data)
 		#print(input_data, " MAIN CALL STRING: ", processed_data)
@@ -334,23 +334,24 @@ func _process_input_data_dict(input_data):
 
 ## Access path is a path of classes ie. SomeClass.MyEnum, to access the enum member.
 ## Enum Data is an array of enum member names.
-func _add_code_completions(access_path:String, enum_data:Array, other_options:= [], force_update:=false, alias=null) -> bool:
+func _add_code_completions(access_path:String, enum_members:Array, other_options:= [], force_update:=false, alias=null) -> bool:
 	var script_editor = get_code_edit()
 	
 	var enum_icon = EditorInterface.get_editor_theme().get_icon("Enum", "EditorIcons")
-	for member in enum_data: # TODO options can be added via inherited method
+	
+	for member in enum_members: # TODO options can be added via inherited method
 		var full_name = member
 		if access_path != "":
 			full_name = access_path + "." + member
 		script_editor.add_code_completion_option(CodeEdit.KIND_ENUM, full_name, full_name, Color.GRAY, enum_icon)
 	
 	if alias != null:
-		for member in enum_data:
+		for member in enum_members:
 			var full_name = member
 			if alias != "":
 				full_name = alias + "." + member
 			var display_name = full_name + "[script alias]"
-			script_editor.add_code_completion_option(CodeEdit.KIND_ENUM, display_name, full_name, Color.GRAY, enum_icon)
+			script_editor.add_code_completion_option(CodeEdit.KIND_ENUM, display_name, full_name, Color.GRAY, enum_icon, null, 256)
 	
 	if not other_options.is_empty():
 		var prop_icon = EditorInterface.get_editor_theme().get_icon("MemberProperty", "EditorIcons")

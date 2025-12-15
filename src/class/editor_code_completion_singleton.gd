@@ -88,6 +88,7 @@ enum State {
 	MEMBER_ACCESS,
 	SCRIPT_BODY,
 	TYPE_ASSIGNMENT,
+	ANNOTATION,
 }
 
 enum TagLocation {
@@ -294,7 +295,9 @@ func _set_code_edit(script):
 		if not _current_code_edit.code_completion_requested.is_connected(_on_code_completion_requested):
 			_current_code_edit.code_completion_requested.connect(_on_code_completion_requested.bind(_current_code_edit))
 	
-	if script != null:
+	if is_instance_valid(script):# script != null:
+		if script is not GDScript:
+			script = null
 		_on_editor_script_changed(script)
 		_current_script = script
 
@@ -311,11 +314,11 @@ func _prep_script(script):
 	script_cache.clear()
 	script_cache[ScriptCache.STRING_MAPS] = {}
 	
-	if script != null:
+	if is_instance_valid(script):# script != null:
 		gdscript_parser.on_script_changed(script)
-	
-	for editor_code_completion in code_completions.keys():
-		editor_code_completion._on_editor_script_changed(script)
+		
+		for editor_code_completion in code_completions.keys():
+			editor_code_completion._on_editor_script_changed(script)
 
 
 
@@ -354,7 +357,10 @@ func _pre_request_checks(script_editor:CodeEdit):
 	elif _get_assignment_at_caret(current_line_text, current_caret_col) != null:
 		current_state = State.ASSIGNMENT
 	elif get_current_func() == GDScriptParser._Keys.CLASS_BODY:
-		current_state = State.SCRIPT_BODY
+		if current_line_text.begins_with("@"):
+			current_state = State.ANNOTATION
+		else:
+			current_state = State.SCRIPT_BODY
 
 
 #region API
@@ -733,12 +739,18 @@ func get_string_map(text:String, mode:UString.StringMap.Mode=UString.StringMap.M
 
 func _get_current_script():
 	#if _current_script == null:
-	_current_script = ScriptEditorRef.get_current_script()
+	var script = ScriptEditorRef.get_current_script()
+	if script is GDScript:
+		_current_script = script
+	else:
+		_current_script = null
 	return _current_script
 
 func _get_code_edit():
-	if _current_code_edit == null:
-		_current_code_edit = ScriptEditorRef.get_current_code_edit()
+	if not is_instance_valid(_current_code_edit):# == null:
+		var ce = ScriptEditorRef.get_current_code_edit()
+		if is_instance_valid(ce):
+			_current_code_edit = ce
 	return _current_code_edit
 
 

@@ -107,8 +107,11 @@ func _on_code_completion_requested(script_editor:CodeEdit) -> bool:
 	completion_cache.clear()
 	completion_cache[COMP_CHECKED_SCRIPTS] = {}
 	
-	var current_state = get_state()
+	var current_script = get_current_script()
+	if current_script == null:
+		return false
 	
+	var current_state = get_state()
 	if current_state == State.COMMENT:
 		var caret_line = script_editor.get_caret_line()
 		var current_line_text = script_editor.get_line(caret_line)
@@ -123,13 +126,12 @@ func _on_code_completion_requested(script_editor:CodeEdit) -> bool:
 		return false
 	elif current_state == State.MEMBER_ACCESS:
 		return false
+	elif current_state == State.ANNOTATION:
+		return false
 	elif is_caret_in_enum():
 		return false
 	
 	var word_before_cursor = get_word_before_caret()
-	#if word_before_cursor.find(".") > -1:
-		#return false
-	
 	var existing_options = script_editor.get_code_completion_options()
 	if existing_options.is_empty(): #^ early returns
 		if caret_in_func_declaration():
@@ -148,7 +150,6 @@ func _on_code_completion_requested(script_editor:CodeEdit) -> bool:
 	
 	var options = []
 	var options_dict:Dictionary = {}
-	var current_script = get_current_script()
 	var cache_cc_options = _get_cached_data(IMPORT_MEMBERS_CURRENT, current_script.resource_path, data_cache)
 	if cache_cc_options == null:
 		cache_cc_options = _get_code_complete_options()

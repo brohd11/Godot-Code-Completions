@@ -46,11 +46,12 @@ func on_script_changed(script):
 	var script_editor = ScriptEditorRef.get_current_code_edit()
 	if not is_instance_valid(script_editor):
 		return
-	_current_code_edit = ScriptEditorRef.get_current_code_edit()
-	_current_script = ScriptEditorRef.get_current_script()
-	_current_code_edit_text = _current_code_edit.get_text_for_code_completion()
 	last_caret_line = -1
-	if script != null:
+	_current_code_edit = ScriptEditorRef.get_current_code_edit()
+	if is_instance_valid(_current_code_edit):
+		_current_code_edit_text = _current_code_edit.get_text_for_code_completion()
+	_current_script = ScriptEditorRef.get_current_script()
+	if is_instance_valid(script):
 		_get_script_inherited_members(script)
 		map_script_members.call_deferred()
 
@@ -171,9 +172,10 @@ func map_script_members():
 
 func _map_script_members():
 	var script_editor = _get_code_edit()
-	#if not is_instance_valid(script_editor): #^ this is checked on script changed
-		#script_data.clear()
-		#return {}
+	if not is_instance_valid(script_editor):
+		script_data.clear()
+		return {}
+	
 	var access_path = ""
 	var access_path_parts = []
 	var member_data = {}
@@ -355,11 +357,13 @@ func _set_current_func_and_class(start_idx:int, text_changed:=false):
 			var stripped = line_text.strip_edges()
 			var _class = UString.get_class_name_in_line(stripped)
 			if _class != "":
-				if access_path == "":
-					access_path = _class
-				else:
-					access_path = _class + "." + access_path
-				indent -= _indent_size
+				var next_indent = script_editor.get_indent_level(current_line)
+				if next_indent < indent:
+					if access_path == "":
+						access_path = _class
+					else:
+						access_path = _class + "." + access_path
+					indent -= _indent_size
 	
 	current_class = access_path
 	
@@ -891,7 +895,8 @@ func get_body_and_local_vars(_class:String, _func:String):
 func _get_body_and_local_vars(_class:String, _func:String):
 	if not script_data.has(_class):
 		_map_script_members()
-	var class_vars = script_data.get(_class)
+	
+	var class_vars = script_data.get(_class, {})
 	var body_vars = class_vars.get(_Keys.CLASS_BODY)
 	var local_vars:Dictionary
 	if _func != _Keys.CLASS_BODY:
