@@ -133,7 +133,8 @@ func _on_code_completion_requested(script_editor:CodeEdit) -> bool:
 	
 	var word_before_cursor = get_word_before_caret()
 	var existing_options = script_editor.get_code_completion_options()
-	if existing_options.is_empty(): #^ early returns
+	var existing_size = existing_options.size()
+	if existing_size == 0: #^ early returns
 		if caret_in_func_declaration():
 			return false
 		if _SKIP_KEYWORDS.has(word_before_cursor):
@@ -145,6 +146,14 @@ func _on_code_completion_requested(script_editor:CodeEdit) -> bool:
 				return false
 		var char_before_cursor = get_char_before_caret()
 		if _SKIP_CHARS.has(char_before_cursor):
+			return false
+	elif existing_size < 10:
+		var is_enum = true
+		for o in existing_options:
+			if o.kind != CodeEdit.CodeCompletionKind.KIND_ENUM:
+				is_enum = false
+				break
+		if is_enum:
 			return false
 	
 	

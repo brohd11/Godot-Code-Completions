@@ -780,6 +780,8 @@ func _build_global_script_constant_map():
 	var global_classes = UClassDetail.get_all_global_class_paths()
 	for _name in global_classes.keys():
 		var global_path = global_classes.get(_name)
+		if global_path.get_extension() == "cs":
+			continue
 		var cached = CacheHelper.get_cached_data(global_path, _global_script_constant_map_data_cache)
 		if cached != null:
 			for script in cached.keys():
