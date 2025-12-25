@@ -145,7 +145,7 @@ func get_script_constants(_class:String=""):
 	if _class == "":
 		return script_data[_class].get(_Keys.CONST, {})
 	
-	var constants = script_data[""].get(_Keys.CONST, {})
+	var constants = script_data.get("", {}).get(_Keys.CONST, {})
 	var parts = _class.split(".")
 	var working_path = ""
 	for access_path in parts:
@@ -586,7 +586,7 @@ func _get_enum_members_in_line(stripped_text:String) -> Dictionary:
 	var enum_data = {}
 	for i in range(members_array.size()):
 		var m = members_array[i]
-		m.strip_edges()
+		m = m.strip_edges()
 		enum_data[m] = i
 	return enum_data
 
