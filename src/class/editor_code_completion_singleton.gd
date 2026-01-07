@@ -156,6 +156,7 @@ func _ready() -> void:
 	_connect_editor()
 	
 	call_on_ready(_init_plugins)
+	_build_global_script_constant_map()
 
 func _singleton_init():
 	_clear_cache()
@@ -537,7 +538,7 @@ func _get_func_call_data(current_line_text:String, caret_col:int) -> Dictionary:
 	if completion_cache.has(CompletionCache.FUNC_CALL):
 		return completion_cache.get(CompletionCache.FUNC_CALL)
 	
-	if current_line_text.rfind("(", caret_col) == -1:
+	if current_line_text.rfind("(", caret_col) == -1: #TODO need to check multiline in this case
 		return {} # if not in a bracket no need to check
 	
 	var string_map = get_string_map(current_line_text)

@@ -1,6 +1,7 @@
 #! import-p UString,UClassDetail,
 
 const PLUGIN_EXPORTED = false
+const PRINT_DEBUG = false # not PLUGIN_EXPORTED
 
 const UFile = preload("res://addons/addon_lib/brohd/alib_runtime/utils/src/u_file.gd")
 const UClassDetail = preload("res://addons/addon_lib/brohd/alib_editor/utils/src/u_class_detail.gd")
@@ -171,6 +172,9 @@ func map_script_members():
 	_map_script_members()
 
 func _map_script_members():
+	if completion_cache.get(_Keys.SCRIPT_MEMBERS_MAPPED, false):
+		return {}
+	
 	var script_editor = _get_code_edit()
 	if not is_instance_valid(script_editor):
 		script_data.clear()
@@ -291,6 +295,7 @@ func _map_script_members():
 			continue
 	
 	script_data = member_data
+	completion_cache[_Keys.SCRIPT_MEMBERS_MAPPED] = true
 	return member_data
 
 ## Add another member to access path.
@@ -636,17 +641,17 @@ func get_var_type(var_name:String, _func=null, _class=null):
 					break
 			
 			var working_func_call = final_type_hint + "." + part
-			if not PLUGIN_EXPORTED:
+			if PRINT_DEBUG:
 				print("WORK ", working_func_call)
 			var member_info = get_script_member_info_by_path(current_script, working_func_call)
 			if member_info == null:
-				if not PLUGIN_EXPORTED:
+				if PRINT_DEBUG:
 					printerr("COULD NOT FIND MEMBER INFO: ", working_func_call)
 				break
 			
 			var type = property_info_to_type(member_info) #^r can I clean this up a bit?
 			if type == "": #^ is this ok? For if an enum is end of string, or other non property member
-				if not PLUGIN_EXPORTED:
+				if PRINT_DEBUG:
 					printerr("type is blank")
 				break
 			elif type.begins_with("res://"):
@@ -679,11 +684,13 @@ func _get_var_type(var_name:String, _func, _class):
 			return prop_string
 	
 	var type_hint = _get_raw_type(var_name, _func, _class)
-	if not PLUGIN_EXPORTED:
+	if PRINT_DEBUG:
 		print("RAW ", type_hint)
 	if type_hint == "":
 		return "" #^ return empty string so a local var will not trigger a body var in lookup
 	type_hint = _get_type_hint(type_hint, _class, _func)
+	if PRINT_DEBUG:
+		print("TYPE ", type_hint)
 	if type_hint == "":
 		return var_name
 	return type_hint
@@ -698,7 +705,7 @@ func _get_raw_type(var_name:String, _func:String, _class:String):
 	var local_vars = vars_dict.local
 	var in_body_vars = in_body_valid > 0
 	#^ Vars are valid at this point.
-	if not PLUGIN_EXPORTED:
+	if PRINT_DEBUG:
 		print("GET RAW TYPE ", var_name)
 	if var_name.find("(") > -1: #^ this seems to only trigger with functions that are not in the source code yet
 		var_name = var_name.substr(0, var_name.find("("))
@@ -719,7 +726,7 @@ func _get_raw_type(var_name:String, _func:String, _class:String):
 		if dec_line <= script_editor.get_caret_line(): # if not, it may be body var
 			var member_data = get_member_declaration(var_name, data)
 			if member_data == null:
-				if not PLUGIN_EXPORTED:
+				if PRINT_DEBUG:
 					printerr("Could not get: ", var_name)
 				return ""
 			return member_data.get(_Keys.TYPE, "")
@@ -728,7 +735,7 @@ func _get_raw_type(var_name:String, _func:String, _class:String):
 		var data = body_vars.get(var_name)
 		var member_data = get_member_declaration(var_name, data)
 		if member_data == null:
-			if not PLUGIN_EXPORTED:
+			if PRINT_DEBUG:
 				printerr("Could not get: ", var_name)
 			return var_name
 		return member_data.get(_Keys.TYPE, "")
@@ -750,7 +757,7 @@ func _get_type_hint(type_hint:String, _class:String, _func:String):
 	var in_body_vars = in_body_valid > 0
 	var in_local_vars = local_vars.has(access_name)
 	#^ Vars are valid at this point.
-	if not PLUGIN_EXPORTED:
+	if PRINT_DEBUG:
 		print("GET TYPE HINT ", type_hint)
 	if type_hint.find(" as ") > -1:
 		type_hint = type_hint.get_slice(" as ", 1).strip_edges()
@@ -807,7 +814,14 @@ func _get_type_hint(type_hint:String, _class:String, _func:String):
 	
 	var constant_map = get_script_constants(current_class)
 	if constant_map.has(type_hint):
+		# TEST
+		var data = constant_map.get(type_hint) #^ This would be already fully resolved, but don't want to return path
+		var type = data.get(_Keys.TYPE, "")
+		if type.is_absolute_path():
+			return type_hint
+		# TEST #^ Will the below ever be triggered? Seems to be working fine with tests
 		var resolved = resolve_full_const_type(type_hint)
+		printerr("FULL RESOLVE")
 		return resolved
 	
 	var current_script = _get_current_script()
@@ -833,7 +847,7 @@ func _get_inherited_member_type(var_name:String):
 		current_script = get_script_member_info_by_path(current_script, current_class)
 		if current_script is not GDScript:
 			return var_name
-		if not PLUGIN_EXPORTED:
+		if PRINT_DEBUG:
 			printerr("GET INHERITED INNER CLASS: ", current_script.resource_path)
 	
 	var inherited_members = _get_script_inherited_members(current_script)
@@ -1018,7 +1032,7 @@ func _check_var_in_body_valid(var_name, _class):
 				#return 0
 		var valid_declaration = check_member_declaration_valid(var_name, data)
 		if not valid_declaration:
-			if not PLUGIN_EXPORTED:
+			if PRINT_DEBUG:
 				printerr("TRIGGERING REBUILD")
 			_map_script_members() # signal dirty?
 			_set_current_func_and_class(_get_code_edit().get_caret_line())
@@ -1062,7 +1076,7 @@ func _check_script_source_member_valid(first_var:String, _class:String):
 	var local_vars = vars_dict.local
 	var data = body_vars.get(access_name)
 	if data == null:
-		if not PLUGIN_EXPORTED:
+		if PRINT_DEBUG:
 			printerr("IN BODY VAR BUT DATA NULL: ", access_name)
 		completion_cache[_Keys.SCRIPT_SOURCE_CHECK][_class][access_name] = null
 		return null
@@ -1073,13 +1087,10 @@ func _check_script_source_member_valid(first_var:String, _class:String):
 	var indent = data.get(_Keys.INDENT)
 	
 	var script_text = _get_current_script_as_text()
-	
 	#^ alternate use the file's contents. This is because the source code get's updated on script change 
 	#^ but doesn't actually seem to have updated vars when calling script functions
 	#var source_snapshot = _get_member_declaration_from_text(access_name, current_script.source_code, indent, var_type)
-	var t = ALibRuntime.Utils.UProfile.TimeFunction.new("get declaration")
 	var source_snapshot = _get_member_declaration_from_text(access_name, script_text, indent, var_type)
-	t.stop()
 	
 	if snapshot == source_snapshot:
 		if _class != "":
@@ -1188,7 +1199,7 @@ func _get_member_declaration_from_text(var_name:String, text:String, indent:int,
 	var var_declaration_idx:int = -1
 	if reverse:
 		if text_source == &"source":
-			if not PLUGIN_EXPORTED:
+			if PRINT_DEBUG:
 				printerr("Can't run reverse member declaration search on source code. Need caret char from code edit method.")
 			return ""
 		#var caret_idx = text.find("\uFFFF") # from cursor check behind for latest
@@ -1298,7 +1309,7 @@ func _property_info_to_type(property_info) -> String:
 		if const_name:
 			return const_name
 	
-	if not PLUGIN_EXPORTED:
+	if PRINT_DEBUG:
 		printerr("UNHANDLED PROPERTY INFO OR UNFOUND: ", property_info)
 	return ""
 
@@ -1362,7 +1373,7 @@ func _resolve_full_type(var_name:String, constants_dict:Dictionary) -> String:
 	var visited_aliases = {}
 	while constants_dict.has(current_alias):
 		if visited_aliases.has(current_alias): # If we have seen this alias before, we're in a loop.
-			if not PLUGIN_EXPORTED:
+			if PRINT_DEBUG:
 				printerr("Cycle detected in constant resolution! Alias '", current_alias, "' is part of a loop.")
 			return "[CYCLE_ERROR:" + current_alias + "]" + suffix
 		visited_aliases[current_alias] = true
@@ -1518,6 +1529,7 @@ class _Keys:
 	const SCRIPTS_AS_TEXT = &"ScriptsAsText"
 	
 	# code completion keys
+	const SCRIPT_MEMBERS_MAPPED = &"ScriptMembersMapped"
 	const SCRIPT_SOURCE_CHECK = &"ScriptSourceChecks"
 	const SCRIPT_DECLARATIONS_TEXT = &"ScriptDeclarationsText"
 	const SCRIPT_DECLARATIONS_DATA = &"ScriptDeclarationsData"

@@ -92,6 +92,7 @@ func _func_call() -> bool:
 		func_method = full_call_typed.substr(rfind_idx + 1) #^ doesn't need to be bracket safe
 		access_name = full_call_typed.substr(0, rfind_idx)
 		
+		
 		if access_name != "":
 			external_method = true
 	
@@ -177,7 +178,7 @@ func _process_to_enum_data(input_data, force_update:=false):
 		
 		var current_script = get_current_script()
 		member_path = _get_member_path_from_data(process_input, current_script)
-		
+		#print("ACCESS ", enum_access_path, " MEMBER ", member_path)
 		alias = _check_inherited_preloads_for_alias(process_input, current_script)
 		if alias != null:
 			if show_alias_only:
@@ -449,7 +450,7 @@ func _get_enum_vars(processed_data:Dictionary) -> Array:
 
 
 func _get_member_path_from_data(processed_input:Dictionary, script:GDScript):
-	var t = ALibRuntime.Utils.UProfile.TimeFunction.new("GET PATH",)
+	var t = ALibRuntime.Utils.UProfile.TimeFunction.new("GET PATH")
 	var enum_data = processed_input.enum_data
 	var enum_script = processed_input.enum_script
 	var access_path = processed_input.member_path
