@@ -43,6 +43,20 @@ func _get_completion_settings() -> Dictionary:
 func _singleton_ready() -> void:
 	pass
 
+static func call_on_ready(callable:Callable):
+	EditorCodeCompletionSingleton.call_on_ready(callable)
+
+static func register_tag_static(prefix:String, tag:String, location:=TagLocation.ANY):
+	if not EditorCodeCompletionSingleton.instance_valid():
+		print("EditorCodeCompletionSingleton not instanced yet.")
+		return
+	EditorCodeCompletionSingleton.get_instance().register_tag(prefix, tag, TagLocation.ANY)
+
+static func unregister_tag_static(prefix:String, tag:String, location:=TagLocation.ANY):
+	if not EditorCodeCompletionSingleton.instance_valid():
+		print("EditorCodeCompletionSingleton not instanced yet.")
+		return
+	EditorCodeCompletionSingleton.get_instance().unregister_tag(prefix, tag)
 
 func register_tag(prefix:String, tag:String, location:=TagLocation.ANY):
 	singleton.register_tag(prefix, tag, location)

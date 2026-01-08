@@ -1,7 +1,7 @@
 #! import-p UString,UClassDetail,
 
 const PLUGIN_EXPORTED = false
-const PRINT_DEBUG = false # not PLUGIN_EXPORTED
+const PRINT_DEBUG = true # not PLUGIN_EXPORTED
 
 const UFile = preload("res://addons/addon_lib/brohd/alib_runtime/utils/src/u_file.gd")
 const UClassDetail = preload("res://addons/addon_lib/brohd/alib_editor/utils/src/u_class_detail.gd")
@@ -623,8 +623,8 @@ func get_var_type(var_name:String, _func=null, _class=null):
 				if var_type.begins_with("res://"):
 					var tail = UString.trim_member_access_front(var_name, string_map)
 					return var_type + "." + tail
-				
-				final_type_hint = var_type
+				if var_type != "self":
+					final_type_hint = var_type
 				continue
 			
 			if part.find("(") > -1:
@@ -762,6 +762,11 @@ func _get_type_hint(type_hint:String, _class:String, _func:String):
 	if type_hint.find(" as ") > -1:
 		type_hint = type_hint.get_slice(" as ", 1).strip_edges()
 	
+	if type_hint.begins_with("new("):
+		if _class == "":
+			return "self"
+		else:
+			return _class
 	if VariantChecker.check_type(type_hint):
 		return type_hint
 	if type_hint.begins_with("res://"):

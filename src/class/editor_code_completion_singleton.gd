@@ -302,9 +302,9 @@ func _set_code_edit(script):
 		_on_editor_script_changed(script)
 		_current_script = script
 
-
 func _on_editor_script_changed(script):
 	_prep_script(script)
+
 
 func _on_file_system_changed():
 	var current_script = _get_current_script()
@@ -326,7 +326,6 @@ func _prep_script(script):
 func _on_code_completion_requested(script_editor:CodeEdit) -> void:
 	completion_cache.clear()
 	_pre_request_checks(script_editor)
-	
 	for editor_code_completion in code_completions.keys():
 		#var t = TimeFunction.new(str(editor_code_completion.get_script().resource_path.get_file()))
 		var handled = editor_code_completion._on_code_completion_requested(script_editor)

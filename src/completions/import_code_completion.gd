@@ -273,7 +273,6 @@ func _get_property_options(script:GDScript, access_name:String):
 	
 
 func _get_const_options(script:GDScript, access_name:String):
-	
 	var options_to_skip = {}
 	var constants = UClassDetail.script_get_all_constants(script, UClassDetail.IncludeInheritance.SCRIPTS_ONLY)
 	var cc_options = {}
