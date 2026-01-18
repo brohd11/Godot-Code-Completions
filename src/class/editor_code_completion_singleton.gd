@@ -34,12 +34,14 @@ const ImportCodeCompletion = preload("res://addons/code_completions/src/completi
 const TypeAssignmentCompletion = preload("res://addons/code_completions/src/completions/type_assignment.gd")
 const HidePrivateCompletion = preload("res://addons/code_completions/src/completions/hide_private.gd")
 const TagCompletion = preload("res://addons/code_completions/src/completions/tag_completion.gd")
+const ConstKey = preload("res://addons/code_completions/src/completions/const_key.gd")
 
 var enum_completion:EnumCompletion
 var import_code_completion:ImportCodeCompletion
 var type_assignment_completion:TypeAssignmentCompletion
 var hide_private_completion:HidePrivateCompletion
 var tag_completion:TagCompletion
+var const_key_completion:ConstKey
 
 #^ singletons
 var _singleton_refs = {}
@@ -182,18 +184,20 @@ func _init_plugins() -> void:
 	type_assignment_completion = TypeAssignmentCompletion.new()
 	hide_private_completion = HidePrivateCompletion.new()
 	tag_completion = TagCompletion.new()
+	const_key_completion = ConstKey.new()
 
 func _free_plugins() -> void:
-	if is_instance_valid(enum_completion):
-		enum_completion.clean_up()
-	if is_instance_valid(import_code_completion):
-		import_code_completion.clean_up()
-	if is_instance_valid(type_assignment_completion):
-		type_assignment_completion.clean_up()
-	if is_instance_valid(hide_private_completion):
-		hide_private_completion.clean_up()
-	if is_instance_valid(tag_completion):
-		tag_completion.clean_up()
+	var plugins = [
+		enum_completion,
+		import_code_completion,
+		type_assignment_completion,
+		hide_private_completion,
+		tag_completion,
+		const_key_completion,
+		]
+	for p in plugins:
+		if is_instance_valid(p):
+			p.clean_up()
 
 func register_tag(prefix:String, tag:String, location:TagLocation=TagLocation.ANY):
 	if not peristent_cache[PersistentCache.TAGS].has(prefix):

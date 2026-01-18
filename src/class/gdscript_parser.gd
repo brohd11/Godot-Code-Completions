@@ -44,6 +44,7 @@ func _set_settings():
 	_indent_size = editor_settings.get_setting(EditorSet.INDENT_SIZE)
 
 func on_script_changed(script):
+	completion_cache.clear()
 	var script_editor = ScriptEditorRef.get_current_code_edit()
 	if not is_instance_valid(script_editor):
 		return
@@ -60,6 +61,7 @@ func _on_text_changed():
 	var script_editor:CodeEdit = _get_code_edit()
 	var current_caret_line = script_editor.get_caret_line()
 	_set_current_func_and_class(current_caret_line, true) #^ set bool to true so only current func and class are updated
+	
 
 
 func on_completion_requested():
@@ -73,6 +75,8 @@ func on_completion_requested():
 	var script_editor:CodeEdit = _get_code_edit()
 	var current_caret_line = script_editor.get_caret_line()
 	_set_current_func_and_class(current_caret_line)
+	
+	last_caret_line = _current_code_edit.get_caret_line() #^ I need to optimize this a bit? should not trigger so much
 
 
 #region API
@@ -172,6 +176,7 @@ func map_script_members():
 	_map_script_members()
 
 func _map_script_members():
+	#print("MAP")
 	if completion_cache.get(_Keys.SCRIPT_MEMBERS_MAPPED, false):
 		return {}
 	
@@ -348,6 +353,9 @@ func _set_current_func_and_class(start_idx:int, text_changed:=false):
 		current_func = _Keys.CLASS_BODY
 	if _last_func == _Keys.CLASS_BODY and current_func != _Keys.CLASS_BODY:
 		rebuild = true
+	elif _last_func == _Keys.CLASS_BODY and script_editor.get_caret_line() != last_caret_line:
+		rebuild = true
+	
 	_last_func = current_func # when entering a local func from the body, rescan before mapping current
 	
 	if rebuild:

@@ -25,7 +25,7 @@ func _on_code_completion_requested(script_editor:CodeEdit) -> bool:
 	var tag_present = ""
 	var tag_idx = -1
 	for tag in tags:
-		tag_idx = UString.string_safe_rfind(current_line_text, tag, caret_col, string_map.string_mask)
+		tag_idx = UString.string_safe_rfind(current_line_text, tag, caret_col, string_map)
 		if tag_idx > -1:
 			tag_present = tag
 			break

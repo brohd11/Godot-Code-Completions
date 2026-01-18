@@ -1,7 +1,7 @@
 extends EditorCodeCompletion
 
 #! import-p UClassDetail,
-
+const UFile = ALibRuntime.Utils.UFile
 
 func _get_completion_settings() -> Dictionary:
 	return {
@@ -36,8 +36,32 @@ func _on_code_completion_requested(script_editor:CodeEdit) -> bool:
 		else:
 			return false
 	
-	var new_options = {}
-	var constants = UClassDetail.script_get_all_constants(class_script, UClassDetail.IncludeInheritance.SCRIPTS_ONLY)
+	var options:Dictionary
+	if class_script == current_script:
+		options = _get_all_current_script_options()
+	else:
+		options = _get_gdscript_constants(class_script)
+	
+	for o in options.values():
+		add_completion_option(script_editor, o)
+	
+	if class_script == current_script: #^ this will stop nested classes from displaying full class list
+		var existing = script_editor.get_code_completion_options()
+		for o in existing:
+			var display = o.display_text
+			if hide_global_classes:
+				if global_classes.has(display) and not show_global_classes.has(display):
+					continue
+			if not options.has(display):
+				add_completion_option(script_editor, o)
+	
+	update_completion_options()
+	return true
+
+
+func _get_gdscript_constants(script):
+	var options = {}
+	var constants = UClassDetail.script_get_all_constants(script, UClassDetail.IncludeInheritance.SCRIPTS_ONLY)
 	for c in constants:
 		var val = constants.get(c)
 		var add = false
@@ -50,21 +74,40 @@ func _on_code_completion_requested(script_editor:CodeEdit) -> bool:
 			icon_name = "enum"
 			type = CodeEdit.CodeCompletionKind.KIND_ENUM
 		if add:
-			new_options[c] = get_code_complete_dict(type, c, c, icon_name, null, 0)
-	
-	
-	for o in new_options.values():
-		add_completion_option(script_editor, o)
-	
-	if class_script == current_script: #^ this will stop nested classes from displaying full class list
-		var existing = script_editor.get_code_completion_options()
-		for o in existing:
-			var display = o.display_text
-			if hide_global_classes:
-				if global_classes.has(display) and not show_global_classes.has(display):
-					continue
-			if not new_options.has(display):
-				add_completion_option(script_editor, o)
-	
-	update_completion_options()
-	return true
+			options[c] = get_code_complete_dict(type, c, c, icon_name, null, 0)
+	return options
+
+func _get_all_current_script_options():
+	var options = _get_current_script_constants()
+	var current_script = get_current_script()
+	var base_script = current_script.get_base_script()
+	if base_script:
+		var base_options = _get_gdscript_constants(base_script)
+		options.merge(base_options)
+	return options
+
+func _get_current_script_constants():
+	var current_script = get_current_script()
+	var options = {}
+	var constants = get_script_constants(get_current_class())
+	for c in constants:
+		var add = false
+		var icon_name = "Object"
+		var type = CodeEdit.CodeCompletionKind.KIND_CLASS
+		var data = constants.get(c)
+		var var_type = data.get(singleton.GDScriptParser._Keys.TYPE)
+		if UFile.file_exists(var_type, current_script):
+			var script = load(var_type)
+			if script is GDScript:
+				add = true
+		else:
+			var member_info = UClassDetail.get_member_info_by_path(current_script, var_type)
+			if member_info is GDScript:
+				add = true
+			if member_info is Dictionary and UClassDetail.check_dict_is_enum(member_info):
+				add = true
+				icon_name = "enum"
+				type = CodeEdit.CodeCompletionKind.KIND_ENUM
+		if add:
+			options[c] = get_code_complete_dict(type, c, c, icon_name, null, 0)
+	return options

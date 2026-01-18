@@ -187,10 +187,12 @@ func set_data(key, value):
 func get_data(key):
 	return singleton.peristent_cache.get(key)
 
-func get_code_complete_dict(kind:CodeEdit.CodeCompletionKind, display_text, insert_text, icon_name,
+func get_code_complete_dict(kind:CodeEdit.CodeCompletionKind, display_text, insert_text, icon_name="",
 						default_value=null, location=1024, font_color:Color=Color.LIGHT_GRAY):
 	var icon
-	if icon_name == "constructor":
+	if icon_name == "":
+		pass
+	elif icon_name == "constructor":
 		icon = editor_theme.get_icon("MemberConstructor", "EditorIcons")
 	elif icon_name == "const":
 		icon = editor_theme.get_icon("MemberConstant", "EditorIcons")
