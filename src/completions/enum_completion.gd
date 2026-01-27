@@ -39,6 +39,7 @@ func _on_code_completion_requested(script_editor:CodeEdit) -> bool:
 	if get_word_before_caret().length() > 3:
 		return false
 	var current_state := get_state()
+	print(State.keys()[current_state])
 	if current_state == State.ASSIGNMENT:
 		var a:bool = _var_assign()
 		return a
@@ -345,7 +346,7 @@ func _add_code_completions(access_path:String, enum_members:Array, other_options
 	for member in enum_members: # TODO options can be added via inherited method
 		var full_name = member
 		if access_path != "":
-			full_name = access_path + "." + member
+			full_name = access_path + "." + member #^ string + int error here TODO
 		script_editor.add_code_completion_option(CodeEdit.KIND_ENUM, full_name, full_name, Color.GRAY, enum_icon)
 	
 	if alias != null:

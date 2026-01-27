@@ -1217,7 +1217,7 @@ func _get_member_declaration_from_text(var_name:String, text:String, indent:int,
 			return ""
 		#var caret_idx = text.find("\uFFFF") # from cursor check behind for latest
 		var caret_idx = _current_code_edit_text_caret
-		var_declaration_idx = text.rfind(search_string, caret_idx)
+		var_declaration_idx = UString.rfind_index_safe(text, search_string, caret_idx)
 		if var_declaration_idx == -1:
 			var_declaration_idx = text.find(search_string, caret_idx)
 	else:
@@ -1235,9 +1235,10 @@ func _get_member_declaration_from_text(var_name:String, text:String, indent:int,
 			if not reverse:
 				var_declaration_idx = text.find(search_string, var_declaration_idx + search_len)
 			else:
-				var_declaration_idx = text.rfind(search_string, var_declaration_idx - 1)
+				var_declaration_idx = UString.rfind_index_safe(text, search_string, var_declaration_idx - 1)
 		else:
-			var new_line_idx = text.rfind("\n", var_declaration_idx) + 1
+			var new_line_idx = UString.rfind_index_safe(text, "\n", var_declaration_idx) + 1
+			#var new_line_idx = text.rfind("\n", var_declaration_idx) + 1
 			var white_space:String = text.substr(new_line_idx, var_declaration_idx - new_line_idx)
 			white_space = white_space.replace("\t", indent_space)
 			var indent_count = white_space.count(" ")
@@ -1245,11 +1246,13 @@ func _get_member_declaration_from_text(var_name:String, text:String, indent:int,
 				if not reverse:
 					var_declaration_idx = text.find(search_string, var_declaration_idx + search_len)
 				else:
-					var_declaration_idx = text.rfind(search_string, var_declaration_idx - 1)
+					var_declaration_idx = UString.rfind_index_safe(text, search_string, var_declaration_idx - 1)
+					#var_declaration_idx = text.rfind(search_string, var_declaration_idx - 1)
 			else:
 				break
 	
-	var new_line_idx = text.rfind("\n", var_declaration_idx)
+	#var new_line_idx = text.rfind("\n", var_declaration_idx)
+	var new_line_idx = UString.rfind_index_safe(text, "\n", var_declaration_idx)
 	if new_line_idx == -1:
 		new_line_idx = 0
 	
@@ -1492,12 +1495,15 @@ func _get_current_script_as_text():
 ## Return int, 0=false, 1=dict, 2=enum 
 func is_caret_in_dict_or_enum():
 	var caret = _current_code_edit_text_caret
-	var open_idx = _current_code_edit_text.rfind("{", caret)
+	#var open_idx = _current_code_edit_text.rfind("{", caret)
+	var open_idx = UString.rfind_index_safe(_current_code_edit_text, "{", caret)
 	if open_idx == -1:
 		return 0
-	var close_idx = _current_code_edit_text.rfind("}", caret)
+	#var close_idx = _current_code_edit_text.rfind("}", caret)
+	var close_idx = UString.rfind_index_safe(_current_code_edit_text, "}", caret)
 	if close_idx < open_idx: #^ need to handle nested dictionaries
-		var new_idx = _current_code_edit_text.rfind("\n", open_idx)
+		#var new_idx = _current_code_edit_text.rfind("\n", open_idx)
+		var new_idx = UString.rfind_index_safe(_current_code_edit_text, "\n", open_idx)
 		var dict_declar = _current_code_edit_text.substr(new_idx, open_idx - new_idx).strip_edges()
 		if dict_declar.begins_with("enum "):
 			return 2

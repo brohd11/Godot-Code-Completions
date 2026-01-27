@@ -1,4 +1,5 @@
-extends Singleton.RefCount
+extends SingletonRefCount
+const SingletonRefCount = Singleton.RefCount
 #! remote
 #! import-p UString,UClassDetail,
 
@@ -139,6 +140,10 @@ var code_completions:Dictionary = {}
 var peristent_cache:Dictionary = {}
 var script_cache:Dictionary = {}
 var completion_cache:Dictionary = {}
+
+var _current_line_text:String
+var _current_caret_line:int
+var _current_caret_col:int
 
 var current_state:State = State.NONE
 
@@ -331,26 +336,28 @@ func _on_code_completion_requested(script_editor:CodeEdit) -> void:
 	completion_cache.clear()
 	_pre_request_checks(script_editor)
 	for editor_code_completion in code_completions.keys():
-		#var t = TimeFunction.new(str(editor_code_completion.get_script().resource_path.get_file()))
+		var t = TimeFunction.new(str(editor_code_completion.get_script().resource_path.get_file()))
 		var handled = editor_code_completion._on_code_completion_requested(script_editor)
-		#t.stop()
+		t.stop()
 		if handled:
 			return
 
 
 func _pre_request_checks(script_editor:CodeEdit):
-	var current_caret_line = script_editor.get_caret_line()
-	var current_caret_col = script_editor.get_caret_column()
-	var current_line_text:String = script_editor.get_line(current_caret_line)
+	_current_caret_line = script_editor.get_caret_line()
+	_current_line_text = script_editor.get_line(_current_caret_line)
+	_current_caret_col = script_editor.get_caret_column()
+	
+	print(get_word_before_caret())
+	print(get_char_before_caret())
 	
 	gdscript_parser.on_completion_requested() #^ this needs to be before for get_current_func to work
 	
-	var in_func_call_check = _in_func_call_check(current_line_text, current_caret_col) #^ check first to populate CARET_IN_FUNC
-	
+	var in_func_call_check = _in_func_call_check(_current_line_text, _current_caret_col) #^ check first to populate CARET_IN_FUNC
 	current_state = State.NONE
-	if is_index_in_string(current_caret_col, current_caret_line, script_editor):
+	if is_index_in_string(_current_caret_col, _current_caret_line, script_editor):
 		current_state = State.STRING
-	elif is_index_in_comment(current_caret_col, current_caret_line, script_editor):
+	elif is_index_in_comment(_current_caret_col, _current_caret_line, script_editor):
 		current_state = State.COMMENT
 	elif _in_type_assignment():
 		current_state = State.TYPE_ASSIGNMENT
@@ -358,13 +365,15 @@ func _pre_request_checks(script_editor:CodeEdit):
 		current_state = State.MEMBER_ACCESS
 	elif in_func_call_check:
 		current_state = State.FUNC_ARGS
-	elif _get_assignment_at_caret(current_line_text, current_caret_col) != null:
+	elif _get_assignment_at_caret(_current_line_text, _current_caret_col) != null:
 		current_state = State.ASSIGNMENT
 	elif get_current_func() == GDScriptParser._Keys.CLASS_BODY:
-		if current_line_text.begins_with("@"):
+		if _current_line_text.begins_with("@"):
 			current_state = State.ANNOTATION
 		else:
 			current_state = State.SCRIPT_BODY
+	
+	print(State.keys()[current_state])
 
 
 #region API
@@ -419,8 +428,8 @@ func get_global_script_location(script:GDScript):
 
 func get_assignment_at_caret():
 	var script_editor = _get_code_edit()
-	var caret_col = script_editor.get_caret_column()
 	var line_text = script_editor.get_line(script_editor.get_caret_line())
+	var caret_col = script_editor.get_caret_column()
 	var assignment_data = _get_assignment_at_caret(line_text, caret_col)
 	if assignment_data == null:
 		return null
@@ -441,7 +450,9 @@ func get_assignment_at_caret():
 func _get_assignment_at_caret(line_text: String, caret_col: int):
 	if completion_cache.has(CompletionCache.ASSIGNMENT):
 		return completion_cache[CompletionCache.ASSIGNMENT]
-	if line_text.rfind("=", caret_col) == -1: # alternative to above, if not on right side no need to do
+	
+	#if line_text.rfind("=", caret_col) == -1: # alternative to above, if not on right side no need to do
+	if UString.rfind_index_safe(line_text, "=", caret_col) == -1: 
 		completion_cache[CompletionCache.ASSIGNMENT] = null
 		return null
 	
@@ -469,13 +480,16 @@ func _get_assignment_at_caret(line_text: String, caret_col: int):
 				var last_char_idx = best_match.get_end(1) - 1
 				var operator = best_match.get_string(2).strip_edges()
 				
-				var and_index = lhs.rfind(" and ", caret_col)
+				#var and_index = lhs.rfind(" and ", caret_col)
+				var and_index = UString.rfind_index_safe(lhs, " and ", caret_col)
 				if and_index > -1:
 					lhs = lhs.substr(and_index + 5)
-				var or_index = lhs.rfind(" or ", caret_col)
+				#var or_index = lhs.rfind(" or ", caret_col)
+				var or_index = UString.rfind_index_safe(lhs, " or ", caret_col)
 				if or_index > -1:
 					lhs = lhs.substr(or_index + 4)
-				var bitwise_index = lhs.rfind("&&", caret_col)
+				#var bitwise_index = lhs.rfind("&&", caret_col)
+				var bitwise_index = UString.rfind_index_safe(lhs, "&&", caret_col)
 				if bitwise_index > -1:
 					lhs = lhs.substr(bitwise_index + 2)
 				
@@ -509,7 +523,8 @@ func _in_func_call_check(current_line_text:String, current_caret_col:int):
 	completion_cache[CompletionCache.CARET_IN_FUNC_CALL] = true
 	completion_cache[CompletionCache.CARET_IN_FUNC_DECLARATION] = false
 	var arg_text = func_data[EditorCodeCompletion.FuncCall.ARGS][func_data[EditorCodeCompletion.FuncCall.ARG_INDEX]]
-	if arg_text.rfind("=", current_caret_col) > -1:
+	#if arg_text.rfind("=", current_caret_col) > -1: # does this work? May need adjusting
+	if UString.rfind_index_safe(arg_text, "=", current_caret_col) > -1:
 		return false
 	return true
 
@@ -541,7 +556,8 @@ func _get_func_call_data(current_line_text:String, caret_col:int) -> Dictionary:
 	if completion_cache.has(CompletionCache.FUNC_CALL):
 		return completion_cache.get(CompletionCache.FUNC_CALL)
 	
-	if current_line_text.rfind("(", caret_col) == -1: #TODO need to check multiline in this case
+	if UString.rfind_index_safe(current_line_text, "(", caret_col) == -1:
+	#if current_line_text.rfind("(", caret_col) == -1: #TODO need to check multiline in this case
 		return {} # if not in a bracket no need to check
 	
 	var string_map = get_string_map(current_line_text)
@@ -563,6 +579,8 @@ func _get_func_call_data(current_line_text:String, caret_col:int) -> Dictionary:
 		var close = bracket_map.get(open)
 		if not (open <= caret_col and close >= caret_col):
 			continue
+		prints(close, open)
+		prints(close - open, closed_bracket_index - open_bracket_index)
 		if close - open < closed_bracket_index - open_bracket_index:
 			open_bracket_index = open
 			closed_bracket_index = close
@@ -640,13 +658,10 @@ func _parse_identifier_at_position(text:String, start_pos:int, string_map):
 #endregion
 
 func _in_type_assignment():
-	var script_editor = _get_code_edit() as CodeEdit
-	var caret_col = script_editor.get_caret_column()
-	if caret_col == 0:
+	if _current_caret_col == 0:
 		return false
-	var line_text = script_editor.get_line(script_editor.get_caret_line())
 	
-	var relevant_text = line_text.substr(0, caret_col).strip_edges()
+	var relevant_text = _current_line_text.substr(0, _current_caret_col).strip_edges()
 	if relevant_text == "":
 		return false
 	
@@ -665,29 +680,22 @@ func _in_type_assignment():
 func get_word_before_caret():
 	if completion_cache.has(CompletionCache.WORD_BEFORE_CARET):
 		return completion_cache[CompletionCache.WORD_BEFORE_CARET]
-	var script_editor = _get_code_edit() as CodeEdit
-	var caret_col = script_editor.get_caret_column()
-	var line_text = script_editor.get_line(script_editor.get_caret_line())
-	var string_map = get_string_map(line_text)
-	var identifier = _parse_identifier_at_position(line_text, caret_col - 1, string_map)
+	var string_map = get_string_map(_current_line_text)
+	var identifier = _parse_identifier_at_position(_current_line_text, _current_caret_col - 1, string_map)
 	completion_cache[CompletionCache.WORD_BEFORE_CARET] = identifier
 	#print("WORD BEFORE CARET: ", identifier)
 	return identifier
 
 func get_char_before_caret():
-	var script_editor = _get_code_edit() as CodeEdit
-	var caret_col = script_editor.get_caret_column()
-	var line_text = script_editor.get_line(script_editor.get_caret_line())
-	var i = caret_col - 1
+	var i = _current_caret_col - 1
 	var char = ""
 	while i >= 0:
-		char = line_text[i]
+		char = _current_line_text[i]
 		if char != " ":
 			break
 		i -= 1
 	completion_cache[CompletionCache.CHAR_BEFORE_CARET] = char
 	#print("CHAR BEFORE CARET: ", char)
-	
 	return char
 
 
@@ -847,4 +855,3 @@ class EditorSet:
 		PRELOADS,
 		OFF
 	}
-	
