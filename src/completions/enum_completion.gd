@@ -36,6 +36,8 @@ func _set_settings():
 func _on_code_completion_requested(script_editor:CodeEdit) -> bool:
 	if not enum_enable:
 		return false
+	if get_word_before_caret().length() > 3:
+		return false
 	var current_state := get_state()
 	if current_state == State.ASSIGNMENT:
 		var a:bool = _var_assign()
