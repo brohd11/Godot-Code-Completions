@@ -178,7 +178,7 @@ func _register_singletons(plugin:EditorPlugin):
 
 func _unregister_singletons(plugin:EditorPlugin):
 	var plugin_section = _singleton_refs.get_or_add(plugin, {})
-	var syntax_plus = plugin_section.get("SyntaxPlus")
+	var syntax_plus:SyntaxPlus = plugin_section.get("SyntaxPlus")
 	if is_instance_valid(syntax_plus):
 		syntax_plus.unregister_node(plugin)
 
@@ -336,9 +336,9 @@ func _on_code_completion_requested(script_editor:CodeEdit) -> void:
 	completion_cache.clear()
 	_pre_request_checks(script_editor)
 	for editor_code_completion in code_completions.keys():
-		var t = TimeFunction.new(str(editor_code_completion.get_script().resource_path.get_file()))
+		#var t = TimeFunction.new(str(editor_code_completion.get_script().resource_path.get_file()))
 		var handled = editor_code_completion._on_code_completion_requested(script_editor)
-		t.stop()
+		#t.stop()
 		if handled:
 			return
 
@@ -347,9 +347,6 @@ func _pre_request_checks(script_editor:CodeEdit):
 	_current_caret_line = script_editor.get_caret_line()
 	_current_line_text = script_editor.get_line(_current_caret_line)
 	_current_caret_col = script_editor.get_caret_column()
-	
-	print(get_word_before_caret())
-	print(get_char_before_caret())
 	
 	gdscript_parser.on_completion_requested() #^ this needs to be before for get_current_func to work
 	
@@ -372,8 +369,6 @@ func _pre_request_checks(script_editor:CodeEdit):
 			current_state = State.ANNOTATION
 		else:
 			current_state = State.SCRIPT_BODY
-	
-	print(State.keys()[current_state])
 
 
 #region API
@@ -579,8 +574,7 @@ func _get_func_call_data(current_line_text:String, caret_col:int) -> Dictionary:
 		var close = bracket_map.get(open)
 		if not (open <= caret_col and close >= caret_col):
 			continue
-		prints(close, open)
-		prints(close - open, closed_bracket_index - open_bracket_index)
+		
 		if close - open < closed_bracket_index - open_bracket_index:
 			open_bracket_index = open
 			closed_bracket_index = close

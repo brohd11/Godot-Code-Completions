@@ -1,7 +1,7 @@
 #! import-p UString,UClassDetail,
 
 const PLUGIN_EXPORTED = false
-const PRINT_DEBUG = true # not PLUGIN_EXPORTED
+const PRINT_DEBUG = false # not PLUGIN_EXPORTED
 
 const UFile = preload("res://addons/addon_lib/brohd/alib_runtime/utils/src/u_file.gd")
 const UClassDetail = preload("res://addons/addon_lib/brohd/alib_editor/utils/src/u_class_detail.gd")

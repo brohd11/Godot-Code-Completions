@@ -39,7 +39,6 @@ func _on_code_completion_requested(script_editor:CodeEdit) -> bool:
 	if get_word_before_caret().length() > 3:
 		return false
 	var current_state := get_state()
-	print(State.keys()[current_state])
 	if current_state == State.ASSIGNMENT:
 		var a:bool = _var_assign()
 		return a
@@ -483,10 +482,10 @@ func _get_member_path_from_data(processed_input:Dictionary, script:GDScript):
 	t.stop()
 	var global_classes_data = get_global_script_location(enum_script)
 	if global_classes_data == null:
-		print("DONT HAVE GLOBAL")
+		#print("DONT HAVE GLOBAL")
 		return null
 	
-	print("HAVE GLOBAL")
+	#print("HAVE GLOBAL")
 	var class_hint = ""
 	var current_state = get_state()
 	if current_state == State.FUNC_ARGS:
@@ -508,7 +507,7 @@ func _get_member_path_from_data(processed_input:Dictionary, script:GDScript):
 		class_hint = first_class_hint
 	
 	var member_access = global_data["member_access"]
-	print("QUICK GRAB")
+	#print("QUICK GRAB")
 	t.stop()
 	return class_hint + "." + member_access + "." + enum_access_path
 
