@@ -6,8 +6,8 @@ const SingletonRefCount = Singleton.RefCount
 const PE_STRIP_CAST_SCRIPT = preload("res://addons/code_completions/src/class/editor_code_completion_singleton.gd")
 
 const UClassDetail = preload("res://addons/addon_lib/brohd/alib_editor/utils/src/u_class_detail.gd")
-const USort = preload("res://addons/addon_lib/brohd/alib_runtime/utils/src/u_sort.gd")
-const UString = preload("res://addons/addon_lib/brohd/alib_runtime/utils/src/u_string.gd")
+const USort = preload("res://addons/addon_lib/brohd/alib_runtime/utils/u_sort.gd")
+const UString = preload("res://addons/addon_lib/brohd/alib_runtime/utils/u_string.gd")
 const GlobalChecker = preload("res://addons/addon_lib/brohd/alib_runtime/misc/global_checker.gd")
 const VariantChecker = preload("res://addons/addon_lib/brohd/alib_runtime/misc/variant_checker.gd")
 

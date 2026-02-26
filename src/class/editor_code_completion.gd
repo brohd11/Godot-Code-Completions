@@ -2,7 +2,7 @@ class_name EditorCodeCompletion
 
 const EditorCodeCompletionSingleton = preload("res://addons/code_completions/src/class/editor_code_completion_singleton.gd")
 const UClassDetail = preload("res://addons/addon_lib/brohd/alib_editor/utils/src/u_class_detail.gd")
-const UString = preload("res://addons/addon_lib/brohd/alib_runtime/utils/src/u_string.gd")
+const UString = preload("res://addons/addon_lib/brohd/alib_runtime/utils/u_string.gd")
 const DataAccessSearch = EditorCodeCompletionSingleton.DataAccessSearch
 
 const TagLocation = EditorCodeCompletionSingleton.TagLocation

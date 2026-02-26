@@ -3,9 +3,9 @@
 const PLUGIN_EXPORTED = false
 const PRINT_DEBUG = false # not PLUGIN_EXPORTED
 
-const UFile = preload("res://addons/addon_lib/brohd/alib_runtime/utils/src/u_file.gd")
+const UFile = preload("res://addons/addon_lib/brohd/alib_runtime/utils/u_file.gd")
 const UClassDetail = preload("res://addons/addon_lib/brohd/alib_editor/utils/src/u_class_detail.gd")
-const UString = preload("res://addons/addon_lib/brohd/alib_runtime/utils/src/u_string.gd")
+const UString = preload("res://addons/addon_lib/brohd/alib_runtime/utils/u_string.gd")
 const GlobalChecker = preload("res://addons/addon_lib/brohd/alib_runtime/misc/global_checker.gd")
 const VariantChecker = preload("res://addons/addon_lib/brohd/alib_runtime/misc/variant_checker.gd")
 

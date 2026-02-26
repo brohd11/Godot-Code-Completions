@@ -1,7 +1,7 @@
 extends EditorCodeCompletion
 
 #! import-p UClassDetail,
-const UFile = ALibRuntime.Utils.UFile
+const UFile = preload("res://addons/addon_lib/brohd/alib_runtime/utils/u_file.gd")
 
 func _get_completion_settings() -> Dictionary:
 	return {
