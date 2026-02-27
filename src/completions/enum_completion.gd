@@ -143,6 +143,7 @@ func _func_call() -> bool:
 		return false
 	
 	var args = data.get("args", [])
+	#print(args) #TODO this was erroring a string? Property info mismatch?
 	if args.size() > current_arg_idx:
 		var arg_data = args[current_arg_idx]
 		if not _is_property_info_enum(arg_data):

@@ -1,7 +1,7 @@
 extends EditorCodeCompletion
 
 #! import-show-global 
-#! import-g SyntaxPlus,
+#! import-g SyntaxPlusSingleton,
 #! import-p UClassDetail,UString,
 
 #^ import hints
@@ -62,10 +62,10 @@ func _singleton_ready():
 		for tag in tag_data.keys():
 			var callable_nm = tag_data.get(tag)
 			if callable_nm == null:
-				SyntaxPlus.register_comment_tag(prefix, tag)
+				SyntaxPlusSingleton.register_comment_tag(prefix, tag)
 			else:
 				var callable = get(callable_nm)
-				SyntaxPlus.register_highlight_callable(prefix, tag, callable, SyntaxPlus.CallableLocation.START)
+				SyntaxPlusSingleton.register_highlight_callable(prefix, tag, callable, SyntaxPlusSingleton.CallableLocation.START)
 			register_tag(prefix, tag, TagLocation.START)
 
 
@@ -502,8 +502,8 @@ func _get_global_and_preloads():
 
 func _import_syntax_hl(script_editor:CodeEdit, current_line_text:String, line:int, comment_tag_idx:int):
 	var hl_info = {}
-	var default_tag_color = SyntaxPlus.get_instance().DEFAULT_TAG_COLOR
-	var comment_color = SyntaxPlus.get_instance().comment_color
+	var default_tag_color = SyntaxPlusSingleton.get_instance().DEFAULT_TAG_COLOR
+	var comment_color = SyntaxPlusSingleton.get_instance().comment_color
 	
 	var current_line_length = current_line_text.length()
 	var substr = current_line_text.substr(comment_tag_idx + 2).strip_edges()
@@ -512,12 +512,12 @@ func _import_syntax_hl(script_editor:CodeEdit, current_line_text:String, line:in
 	var show_global_hint = hint == _IMPORT_SHOW_GLOBAL
 	var show_global_all_hint = hint == _IMPORT_SHOW_GLOBAL_ALL
 	if not hide_global_classes_setting and (show_global_hint or show_global_all_hint):
-		hl_info[0] = SyntaxPlus.get_hl_info_dict(Color.FIREBRICK)
-		hl_info[hint.length() + 1] = SyntaxPlus.get_hl_info_dict(comment_color)
+		hl_info[0] = SyntaxPlusSingleton.get_hl_info_dict(Color.FIREBRICK)
+		hl_info[hint.length() + 1] = SyntaxPlusSingleton.get_hl_info_dict(comment_color)
 		return hl_info
 	elif hide_global_classes_setting and show_global_all_hint:
-		hl_info[0] = SyntaxPlus.get_hl_info_dict(default_tag_color)
-		hl_info[hint.length() + 1] = SyntaxPlus.get_hl_info_dict(comment_color)
+		hl_info[0] = SyntaxPlusSingleton.get_hl_info_dict(default_tag_color)
+		hl_info[hint.length() + 1] = SyntaxPlusSingleton.get_hl_info_dict(comment_color)
 		return hl_info
 	
 	var global_hint = hint == _IMPORT_G
@@ -525,14 +525,14 @@ func _import_syntax_hl(script_editor:CodeEdit, current_line_text:String, line:in
 	if not (global_hint or preload_hint or show_global_hint):
 		return hl_info #^ empty
 	
-	var global_class_color = SyntaxPlus.get_instance().user_type_color
-	var preload_class_color = SyntaxPlus.get_instance().global_function_color
+	var global_class_color = SyntaxPlusSingleton.get_instance().user_type_color
+	var preload_class_color = SyntaxPlusSingleton.get_instance().global_function_color
 	
-	var symbol_color = SyntaxPlus.get_instance().symbol_color
+	var symbol_color = SyntaxPlusSingleton.get_instance().symbol_color
 	
 	var current_classes = _get_current_classes_of_hint(hint, script_editor)
-	hl_info[0] = SyntaxPlus.get_hl_info_dict(default_tag_color)
-	hl_info[hint.length() + 1] = SyntaxPlus.get_hl_info_dict(comment_color)
+	hl_info[0] = SyntaxPlusSingleton.get_hl_info_dict(default_tag_color)
+	hl_info[hint.length() + 1] = SyntaxPlusSingleton.get_hl_info_dict(comment_color)
 	
 	var in_scope_class_names:Array
 	var class_color:Color
@@ -555,11 +555,11 @@ func _import_syntax_hl(script_editor:CodeEdit, current_line_text:String, line:in
 			if idx == -1:
 				continue
 			
-			hl_info[idx] = SyntaxPlus.get_hl_info_dict(hl_color)
+			hl_info[idx] = SyntaxPlusSingleton.get_hl_info_dict(hl_color)
 			var comma_idx = substr.find(",", idx)
 			if comma_idx != -1:
-				hl_info[comma_idx] = SyntaxPlus.get_hl_info_dict(symbol_color)
-				hl_info[comma_idx + 1] = SyntaxPlus.get_hl_info_dict(comment_color)
+				hl_info[comma_idx] = SyntaxPlusSingleton.get_hl_info_dict(symbol_color)
+				hl_info[comma_idx + 1] = SyntaxPlusSingleton.get_hl_info_dict(comment_color)
 	
 	return hl_info
 

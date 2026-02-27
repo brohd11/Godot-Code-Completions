@@ -17,11 +17,11 @@ var _tags = {}
 
 ## Register plugin to EditorCodeCompletionSingleton and any other singletons it uses.
 static func register_plugin(plugin:EditorPlugin):
-	return EditorCodeCompletionSingleton.register_plugin(plugin)
+	return EditorCodeCompletionSingleton.register_node(plugin)
 
 ## Unregister plugin to EditorCodeCompletionSingleton and any other singletons it uses.
 static func unregister_plugin(plugin:EditorPlugin):
-	EditorCodeCompletionSingleton.unregister_plugin(plugin)
+	EditorCodeCompletionSingleton.unregister_node(plugin)
 
 func _init() -> void:
 	var settings = _get_completion_settings()
@@ -30,7 +30,7 @@ func _init() -> void:
 		return
 	
 	singleton = EditorCodeCompletionSingleton.get_instance()
-	singleton.register_completion(self, settings)
+	EditorCodeCompletionSingleton.register_completion(self, settings)
 	EditorCodeCompletionSingleton.call_on_ready(_singleton_ready)
 	
 	editor_theme = EditorInterface.get_editor_theme()
@@ -46,6 +46,7 @@ func _singleton_ready() -> void:
 static func call_on_ready(callable:Callable):
 	EditorCodeCompletionSingleton.call_on_ready(callable)
 
+# TODO are these used?
 static func register_tag_static(prefix:String, tag:String, location:=TagLocation.ANY):
 	if not EditorCodeCompletionSingleton.instance_valid():
 		print("EditorCodeCompletionSingleton not instanced yet.")

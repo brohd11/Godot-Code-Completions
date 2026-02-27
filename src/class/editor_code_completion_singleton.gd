@@ -56,15 +56,16 @@ static func get_singleton_name() -> String:
 static func get_instance() -> PE_STRIP_CAST_SCRIPT:
 	return _get_instance(PE_STRIP_CAST_SCRIPT)
 
-static func register_plugin(plugin):
-	var instance = _register_node(PE_STRIP_CAST_SCRIPT, plugin)
-	instance._register_singletons(plugin)
+static func register_node(node):
+	var instance = _register_node(PE_STRIP_CAST_SCRIPT, node)
+	instance._register_singletons(node)
 	return instance
 
-static func unregister_plugin(plugin:EditorPlugin):
+static func unregister_node(node):
 	var instance = get_instance()
-	instance._unregister_singletons(plugin)
-	instance.unregister_node(plugin)
+	instance._unregister_singletons(node)
+	_unregister_node(PE_STRIP_CAST_SCRIPT, node)
+	#instance.unregister_node(plugin)
 
 static func register_completion(completion, settings:Dictionary):
 	var instance = get_instance()
@@ -171,16 +172,20 @@ func _singleton_init():
 	gdscript_parser = GDScriptParser.new()
 	gdscript_parser.code_completion_singleton = self
 
-
+# these should be simplified now, don't think it needs to be complex
 func _register_singletons(plugin:EditorPlugin):
-	var plugin_section = _singleton_refs.get_or_add(plugin, {})
-	plugin_section["SyntaxPlus"] = SyntaxPlus.register_node(plugin)
+	SyntaxPlusSingleton.register_node(plugin)
+	
+	#var plugin_section = _singleton_refs.get_or_add(plugin, {})
+	#plugin_section["SyntaxPlus"] = SyntaxPlusSingleton.register_node(plugin)
 
 func _unregister_singletons(plugin:EditorPlugin):
-	var plugin_section = _singleton_refs.get_or_add(plugin, {})
-	var syntax_plus:SyntaxPlus = plugin_section.get("SyntaxPlus")
-	if is_instance_valid(syntax_plus):
-		syntax_plus.unregister_node(plugin)
+	SyntaxPlusSingleton.unregister_node(plugin)
+	
+	#var plugin_section = _singleton_refs.get_or_add(plugin, {})
+	#var syntax_plus:SyntaxPlusSingleton = plugin_section.get("SyntaxPlus")
+	#if is_instance_valid(syntax_plus):
+		#syntax_plus.unregister_node(plugin)
 
 
 func _init_plugins() -> void:
