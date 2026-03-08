@@ -16,6 +16,9 @@ const CacheHelper = DataAccessSearch.CacheHelper
 
 const GDScriptParser = preload("res://addons/code_completions/src/class/gdscript_parser.gd")
 
+const EditorGDScriptParser = ALibEditor.Singletons.EditorGDScriptParser
+const GDScriptParser2 = EditorGDScriptParser.GDScriptParser
+
 #^b{ LSP
 #const GDScriptLSPParser = preload("res://addons/code_completions/src/class/gdscript_lsp_parser.gd")
 #var gdscript_lsp_parser:GDScriptLSPParser
@@ -36,6 +39,7 @@ const TypeAssignmentCompletion = preload("res://addons/code_completions/src/comp
 const HidePrivateCompletion = preload("res://addons/code_completions/src/completions/hide_private.gd")
 const TagCompletion = preload("res://addons/code_completions/src/completions/tag_completion.gd")
 const ConstKey = preload("res://addons/code_completions/src/completions/const_key.gd")
+const ScriptMetadata = preload("res://addons/code_completions/src/completions/script_metadata.gd")
 
 var enum_completion:EnumCompletion
 var import_code_completion:ImportCodeCompletion
@@ -43,6 +47,7 @@ var type_assignment_completion:TypeAssignmentCompletion
 var hide_private_completion:HidePrivateCompletion
 var tag_completion:TagCompletion
 var const_key_completion:ConstKey
+var script_metadata:ScriptMetadata
 
 #^ singletons
 var _singleton_refs = {}
@@ -195,6 +200,7 @@ func _init_plugins() -> void:
 	hide_private_completion = HidePrivateCompletion.new()
 	tag_completion = TagCompletion.new()
 	const_key_completion = ConstKey.new()
+	script_metadata = ScriptMetadata.new()
 
 func _free_plugins() -> void:
 	var plugins = [
@@ -204,6 +210,7 @@ func _free_plugins() -> void:
 		hide_private_completion,
 		tag_completion,
 		const_key_completion,
+		script_metadata
 		]
 	for p in plugins:
 		if is_instance_valid(p):
@@ -330,7 +337,7 @@ func _prep_script(script):
 	script_cache[ScriptCache.STRING_MAPS] = {}
 	
 	if is_instance_valid(script):# script != null:
-		gdscript_parser.on_script_changed(script)
+		#gdscript_parser.on_script_changed(script)
 		
 		for editor_code_completion in code_completions.keys():
 			editor_code_completion._on_editor_script_changed(script)
@@ -369,11 +376,11 @@ func _pre_request_checks(script_editor:CodeEdit):
 		current_state = State.FUNC_ARGS
 	elif _get_assignment_at_caret(_current_line_text, _current_caret_col) != null:
 		current_state = State.ASSIGNMENT
-	elif get_current_func() == GDScriptParser._Keys.CLASS_BODY:
-		if _current_line_text.begins_with("@"):
-			current_state = State.ANNOTATION
-		else:
-			current_state = State.SCRIPT_BODY
+	#elif get_current_func() == GDScriptParser.Keys.CLASS_BODY:
+		#if _current_line_text.begins_with("@"):
+			#current_state = State.ANNOTATION
+		#else:
+			#current_state = State.SCRIPT_BODY
 
 
 #region API

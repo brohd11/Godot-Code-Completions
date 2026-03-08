@@ -83,12 +83,18 @@ func _on_code_completion_requested(script_editor:CodeEdit) -> bool:
 func get_state() -> State:
 	return singleton.get_state()
 
+func get_current_line_text():
+	var code_edit = get_code_edit()
+	return code_edit.get_line(code_edit.get_caret_line())
 
 func get_current_class() -> String:
 	return singleton.get_current_class()
 
 func get_current_func() -> String:
 	return singleton.get_current_func()
+
+func get_class_at_line(line:int):
+	return singleton.get_class_at_line(line)
 
 ## Get body and local vars of current class and func. All local vars are included, not just in-scope.
 ## [method get_in_scope_body_and_local_vars] for in scope only.
