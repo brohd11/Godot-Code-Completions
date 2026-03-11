@@ -8,6 +8,11 @@ const DataAccessSearch = EditorCodeCompletionSingleton.DataAccessSearch
 const TagLocation = EditorCodeCompletionSingleton.TagLocation
 const State = EditorCodeCompletionSingleton.State
 
+const CaretContext = EditorCodeCompletionSingleton.EditorGDScriptParser.GDScriptParser.CaretContext
+const TokenState = CaretContext.TokenState
+const ExpressionState = CaretContext.ExpressionState
+const ScopeState = CaretContext.ScopeState
+
 var singleton:EditorCodeCompletionSingleton
 
 var editor_theme
@@ -79,6 +84,10 @@ func _on_editor_script_changed(script) -> void:
 func _on_code_completion_requested(script_editor:CodeEdit) -> bool:
 	return false
 
+func get_caret_context():
+	return singleton.get_caret_context()
+
+
 ## Get current state of line. See members of [enum State] enum
 func get_state() -> State:
 	return singleton.get_state()
@@ -128,6 +137,7 @@ func get_func_args(_class:String, _func_name:String) -> Dictionary:
 func caret_in_func_call():
 	return singleton.completion_cache.get(singleton.CompletionCache.CARET_IN_FUNC_CALL, false)
 
+
 func caret_in_func_declaration():
 	return singleton.completion_cache.get(singleton.CompletionCache.CARET_IN_FUNC_DECLARATION, false)
 
@@ -157,6 +167,13 @@ func get_word_before_caret():
 
 func get_char_before_caret():
 	return singleton.get_char_before_caret()
+
+
+
+
+
+func split_path(script_path:String):
+	return UString.get_script_path_and_suffix(script_path)
 
 #func add_completion_options(options:Array, hide_private=null):
 	#singleton.add_code_completion_options(options, hide_private)

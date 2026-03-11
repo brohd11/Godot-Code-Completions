@@ -14,10 +14,10 @@ const VariantChecker = preload("res://addons/addon_lib/brohd/alib_runtime/misc/v
 const DataAccessSearch = preload("res://addons/code_completions/src/class/data_access_search.gd")
 const CacheHelper = DataAccessSearch.CacheHelper
 
-const GDScriptParser = preload("res://addons/code_completions/src/class/gdscript_parser.gd")
+const GDScriptParser0 = preload("res://addons/code_completions/src/class/gdscript_parser.gd")
 
-const EditorGDScriptParser = ALibEditor.Singletons.EditorGDScriptParser
-const GDScriptParser2 = EditorGDScriptParser.GDScriptParser
+const EditorGDScriptParser = preload("res://addons/addon_lib/brohd/alib_editor/misc/parser/editor_parser.gd")
+
 
 #^b{ LSP
 #const GDScriptLSPParser = preload("res://addons/code_completions/src/class/gdscript_lsp_parser.gd")
@@ -130,7 +130,9 @@ enum CompletionCache {
 }
 
 var data_access_search:DataAccessSearch
-var gdscript_parser:GDScriptParser
+var gdscript_parser:GDScriptParser0
+var _editor_gdscript_parser:EditorGDScriptParser.GDScriptParser
+var _caret_context:EditorGDScriptParser.GDScriptParser.CaretContext
 
 var global_script_constant_map = {}
 var _global_script_constant_map_data_cache = {}
@@ -170,24 +172,27 @@ func _ready() -> void:
 	
 	call_on_ready(_init_plugins)
 	_build_global_script_constant_map()
+	_editor_gdscript_parser = EditorGDScriptParser.get_instance().get_parser()
 
 func _singleton_init():
 	_clear_cache()
 	data_access_search = DataAccessSearch.new()
-	gdscript_parser = GDScriptParser.new()
+	gdscript_parser = GDScriptParser0.new()
 	gdscript_parser.code_completion_singleton = self
 
-# these should be simplified now, don't think it needs to be complex
+# these should be simplified now, dont think it needs to be complex
 func _register_singletons(plugin:EditorPlugin):
 	SyntaxPlusSingleton.register_node(plugin)
+	EditorGDScriptParser.register_node(plugin)
 	
 	#var plugin_section = _singleton_refs.get_or_add(plugin, {})
 	#plugin_section["SyntaxPlus"] = SyntaxPlusSingleton.register_node(plugin)
 
 func _unregister_singletons(plugin:EditorPlugin):
 	SyntaxPlusSingleton.unregister_node(plugin)
+	EditorGDScriptParser.unregister_node(plugin)
 	
-	#var plugin_section = _singleton_refs.get_or_add(plugin, {})
+	#var plugin_section = _singleton_refs.get_or_add(plugin, {})'
 	#var syntax_plus:SyntaxPlusSingleton = plugin_section.get("SyntaxPlus")
 	#if is_instance_valid(syntax_plus):
 		#syntax_plus.unregister_node(plugin)
@@ -215,6 +220,7 @@ func _free_plugins() -> void:
 	for p in plugins:
 		if is_instance_valid(p):
 			p.clean_up()
+
 
 func register_tag(prefix:String, tag:String, location:TagLocation=TagLocation.ANY):
 	if not peristent_cache[PersistentCache.TAGS].has(prefix):
@@ -339,20 +345,35 @@ func _prep_script(script):
 	if is_instance_valid(script):# script != null:
 		#gdscript_parser.on_script_changed(script)
 		
+		
+		
 		for editor_code_completion in code_completions.keys():
 			editor_code_completion._on_editor_script_changed(script)
 
+
+func get_caret_context():
+	return _caret_context
+
+func _reset_caret_context():
+	_caret_context = null
+	_editor_gdscript_parser.reset_caret_context()
 
 
 func _on_code_completion_requested(script_editor:CodeEdit) -> void:
 	completion_cache.clear()
 	_pre_request_checks(script_editor)
+	var t = TimeFunction.new("MAIN CONTEXT")
+	_caret_context = _editor_gdscript_parser.get_caret_context()
+	t.stop()
 	for editor_code_completion in code_completions.keys():
 		#var t = TimeFunction.new(str(editor_code_completion.get_script().resource_path.get_file()))
 		var handled = editor_code_completion._on_code_completion_requested(script_editor)
 		#t.stop()
 		if handled:
+			_reset_caret_context()
 			return
+	
+	_reset_caret_context()
 
 
 func _pre_request_checks(script_editor:CodeEdit):
@@ -381,6 +402,7 @@ func _pre_request_checks(script_editor:CodeEdit):
 			#current_state = State.ANNOTATION
 		#else:
 			#current_state = State.SCRIPT_BODY
+	
 
 
 #region API
@@ -450,6 +472,7 @@ func get_assignment_at_caret():
 	else:
 		left_typed = get_var_type(left)
 	
+	print("OLD: %s -> NEW: %s" % [left_typed, _caret_context.get_operation_data().left_type])
 	assignment_data[EditorCodeCompletion.Assignment.LEFT_TYPED] = left_typed
 	return assignment_data
 
@@ -764,7 +787,7 @@ func _get_current_script():
 		_current_script = null
 	return _current_script
 
-func _get_code_edit():
+func _get_code_edit() -> CodeEdit:
 	if not is_instance_valid(_current_code_edit):# == null:
 		var ce = ScriptEditorRef.get_current_code_edit()
 		if is_instance_valid(ce):
@@ -794,6 +817,7 @@ func _get_cached_data_in_section(section, key, data_cache:Dictionary):
 
 
 func _build_global_script_constant_map():
+	
 	global_script_constant_map.clear()
 	var global_classes = UClassDetail.get_all_global_class_paths()
 	for _name in global_classes.keys():

@@ -4,6 +4,8 @@ extends EditorCodeCompletion
 
 const CacheHelper = EditorCodeCompletionSingleton.CacheHelper
 
+const ENUM_SUFFIX = EditorCodeCompletionSingleton.EditorGDScriptParser.GDScriptParser.Keys.ENUM_PATH_SUFFIX
+
 var enum_enable:= false
 var show_member_suggestions:= false
 var show_alias_only:=false
@@ -36,16 +38,298 @@ func _set_settings():
 func _on_code_completion_requested(script_editor:CodeEdit) -> bool:
 	if not enum_enable:
 		return false
-	if get_word_before_caret().length() > 3:
+	var caret_context = get_caret_context()
+	if caret_context.token_state != TokenState.NONE:
 		return false
-	var current_state := get_state()
-	if current_state == State.ASSIGNMENT:
-		var a:bool = _var_assign()
-		return a
-	elif current_state == State.FUNC_ARGS:
-		var f:bool = _func_call()
-		return f
+	if caret_context.expression_before_caret.length() > 5:
+		return false
+	if caret_context.expression_state == ExpressionState.ASSIGNMENT or caret_context.expression_state == ExpressionState.COMPARISON:
+		var op_data = caret_context.get_operation_data()
+		print("OP DATA LEFT::", op_data.left_text)
+		print("OP DATA LEFT TYPE::", op_data.left_type)
+		return _process_identifier(op_data.left_type, op_data.left_text)
+	elif caret_context.is_in_function_call():
+		var func_data = caret_context.get_function_call_data()
+		print("CURRENT ARG RAW::", func_data.func_get_current_arg_declaration())
+		print("CURRENT_ARG::", func_data.func_get_current_arg_type())
+		print("RETURN::", func_data.func_get_return_type())
+		print(func_data.function_data)
+		var current_arg_type = func_data.func_get_current_arg_type()
+		var type_hint = func_data.func_get_current_arg_declaration()
+		return _process_identifier(current_arg_type, type_hint)
 	return false
+	
+
+
+#func _operator(caret_context:CaretContext):
+	#var op_data = caret_context.get_operation_data()
+	#return _process_identifier(op_data.left_type)
+	#
+#
+#
+#func _function_call(caret_context:CaretContext):
+	#var func_data = caret_context.get_function_call_data()
+	##print("FUNC DATA::",func_data.function_data)
+	#print("CURRENT_ARG::", func_data.get_current_arg_type())
+	#print("RETURN::", func_data.get_return_type())
+	#
+	#var current_arg_type = func_data.get_current_arg_type()
+	#return _process_identifier(current_arg_type)
+	##UClassDetail.script_get_all_enums(null, )
+
+
+func _process_identifier(identifier:String, type_hint:String=""):
+	
+	if identifier.ends_with(ENUM_SUFFIX):
+		return _process_script_enum(identifier, type_hint, true)
+	
+	return _process_built_in_enum(identifier, true)
+
+
+#region Built in Enum
+
+func _process_built_in_enum(identifier:String, force:=false):
+	var base_type = _get_current_script_base_type()
+	var access_path = ""
+	var enum_name = ""
+	var parts = identifier.split(".", false)
+	for i in range(parts.size()):
+		var part = parts[i]
+		if ClassDB.class_has_enum(base_type, part):
+			enum_name = part
+			break
+		elif ClassDB.class_exists(part):
+			base_type = part
+			access_path = UString.dot_join(access_path, part)
+	
+	if not ClassDB.class_has_enum(base_type, enum_name):
+		return false
+	var enum_members = ClassDB.class_get_enum_constants(base_type, enum_name)
+	
+	
+	prints(base_type, enum_name, enum_members)
+	
+	return _add_enum_code_completions(access_path, enum_members, [], force)
+
+func _is_identifier_built_in_enum(identifier:String):
+	var front = identifier
+	if identifier.find(".") > -1:
+		front = UString.get_member_access_front(identifier)
+	var base_type = _get_current_script_base_type()
+	if ClassDB.class_has_enum(base_type, front):
+		return front
+	return ""
+
+
+func _get_current_script_base_type():
+	var current_script = get_current_script()
+	return current_script.get_instance_base_type()
+
+#endregion
+
+
+#region Script Enums
+
+
+func _process_script_enum(enum_path:String, type_hint:String="", force:=false):
+	if not enum_path.ends_with(ENUM_SUFFIX):
+		return false
+	enum_path = enum_path.trim_suffix(ENUM_SUFFIX)
+	var script_data = get_enum_script_data(enum_path)
+	print(script_data)
+	if script_data.is_empty():
+		return false
+	script_data["force"] = force
+	return _add_custom_enum_members(script_data, type_hint)
+
+func get_enum_script_data(class_path:String):
+	var path_data = split_path(class_path)
+	if path_data.is_empty():
+		return {}
+	var script_path = path_data[0]
+	var suffix = path_data[1]
+	var enum_access = ""
+	var enum_name = suffix
+	if suffix.find(".") > -1:
+		enum_name = UString.get_member_access_back(suffix)
+		enum_access = UString.trim_member_access_back(suffix)
+	
+	return {"script_path": script_path, "enum_access":enum_access, "enum_name":enum_name}
+
+func _add_custom_enum_members(script_data:Dictionary, type_hint:String=""):
+	var script_path = script_data.get("script_path")
+	var enum_access = script_data.get("enum_access")
+	var enum_name = script_data.get("enum_name")
+	var force = script_data.get("force", false)
+	var main_script = load(script_path)
+	var enum_script = main_script
+	if enum_access != "":
+		enum_script = get_script_member_info_by_path(main_script, enum_access)
+	
+	var enum_members = get_script_member_info_by_path(enum_script, enum_name)
+	if enum_members == null:
+		return false
+	var current_script = get_current_script()
+	var path_to_enum = UClassDetail.script_get_member_by_value(current_script, main_script)
+	if path_to_enum != null:
+		path_to_enum = UString.dot_join(path_to_enum, enum_name)
+	else:
+		
+		#^ TO REWORK - Should be easier, maybe just provide a hint also the actual mapping could be reworked too
+		var global_locations = get_global_script_location(main_script)
+		print("TYPE HINT::", type_hint,"::GLOBAL ",global_locations)
+		if global_locations != null:
+			if type_hint != "":
+				var front = UString.get_member_access_front(type_hint)
+				if global_locations.has(front):
+					var location_data = global_locations[front]
+					var path = location_data.get("member_access")
+					path = UString.dot_join(front, path)
+					path_to_enum = UString.dot_join(path, enum_name)
+		#^ TO REWORK
+	print("PATH ", path_to_enum)
+	
+	#var tff = tf.new("", )
+	return _add_enum_code_completions(path_to_enum, enum_members.keys(), [], force)
+
+const TF = P.TimeFunction
+const G = ALibRuntime.Utils
+const P = G.UProfile
+var tf:= TF
+
+var a:Node.AutoTranslateMode
+var t:ConnectFlags
+
+#endregion
+
+
+
+#func _get_custom_alias(enum_data, enum_script, member_path, force_update:=false):
+	#
+	#if enum_data == null:
+		#return false
+	#if not (enum_data is Dictionary or enum_data is PackedStringArray):
+		#return false
+	#
+	#var alias
+	#if enum_script != null:
+		#var deep = true #^ this is set to true to allow searching inner classes, could cause issues with preloads
+		#var enum_access_path = UClassDetail.script_get_member_by_value(enum_script, enum_data, deep, ["const"])
+		#if enum_access_path == null: # should be impossible...
+			##print("COULD NOT GET ENUM ACCESS, SHOULD NOT HAPPEN: ", member_path)
+			##print(enum_script.resource_path)
+			#return false
+		##process_input["enum_access_path"] = enum_access_path
+		#
+		#var current_script = get_current_script()
+		#member_path = _get_member_path_from_data(process_input, current_script)
+		##print("ACCESS ", enum_access_path, " MEMBER ", member_path)
+		#alias = _check_inherited_preloads_for_alias(process_input, current_script)
+		#if alias != null:
+			#if show_alias_only:
+				#member_path = alias
+				#alias = null
+			#else:
+				#if alias == member_path:
+					#alias = null
+				#if member_path == null:
+					#member_path = alias
+					#alias = null
+		#
+	#else: # set to null for built in classes
+		#member_path = DataAccessSearch.check_for_godot_class_inheritance(member_path)
+	#
+	#if member_path == null and alias == null:
+		#return false
+	#
+	#var other_options = []
+	##if process_input.has("enum_class"):
+		##process_input.member_path = member_path
+		##other_options = _get_enum_vars(process_input)
+	#
+	#if enum_data is Dictionary:
+		#enum_data = enum_data.keys()
+	#if enum_data.is_empty():
+		#return false
+	#return _add_code_completions(member_path, enum_data, other_options, force_update, alias)
+
+## Access path is a path of classes ie. SomeClass.MyEnum, to access the enum member.
+## Enum Data is an array of enum member names.
+func _add_enum_code_completions(access_path:String, enum_members:Array, other_options:= [], force_update:=false, alias=null) -> bool:
+	var script_editor = get_code_edit()
+	if enum_members.is_empty():
+		return false
+	
+	var enum_icon = EditorInterface.get_editor_theme().get_icon("Enum", "EditorIcons")
+	
+	for member in enum_members: # TODO options can be added via inherited method
+		var full_name = member
+		if access_path != "":
+			full_name = access_path + "." + member #^ string + int error here TODO
+		script_editor.add_code_completion_option(CodeEdit.KIND_ENUM, full_name, full_name, Color.GRAY, enum_icon)
+	
+	if alias != null:
+		for member in enum_members:
+			var full_name = member
+			if alias != "":
+				full_name = alias + "." + member
+			var display_name = full_name + "[script alias]"
+			script_editor.add_code_completion_option(CodeEdit.KIND_ENUM, display_name, full_name, Color.GRAY, enum_icon, null, 256)
+	
+	if not other_options.is_empty():
+		var prop_icon = EditorInterface.get_editor_theme().get_icon("MemberProperty", "EditorIcons")
+		for option in other_options:
+			script_editor.add_code_completion_option(CodeEdit.KIND_VARIABLE, option, option, Color.GRAY, prop_icon)
+	
+	script_editor.update_code_completion_options(force_update)
+	return true
+
+
+
+func test(some:=Node.AutoTranslateMode.AUTO_TRANSLATE_MODE_DISABLED):
+	
+	pass
+
+func test_base(some:=ConnectFlags.CONNECT_ONE_SHOT):
+	pass
+
+
+
+func tf_test(tf:ALibRuntime.Utils.UProfile.TimeFunction.TimeScale):
+	pass
+
+
+
+
+
+
+
+#func _get_enum_members(class_path:String):
+	#if class_path.ends_with(".gd"):
+		#return
+	#var path_data = split_path(class_path)
+	#if path_data.is_empty():
+		#return
+	#var script_path = path_data[0]
+	#var suffix = path_data[1]
+	#var script = load(script_path)
+	#var data = get_script_member_info_by_path(script, suffix)
+	#if data is Dictionary:
+		#return data
+	#return
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 func _var_assign() -> bool:
 	var assignment_data = get_assignment_at_caret()
@@ -406,18 +690,18 @@ func _get_enum_vars(processed_data:Dictionary) -> Array:
 		var data = body_vars.get(name)
 		if not data is Dictionary:
 			continue
-		if not data.has(EditorCodeCompletionSingleton.GDScriptParser._Keys.TYPE):
+		if not data.has(EditorCodeCompletionSingleton.GDScriptParser0._Keys.TYPE):
 			continue
-		var type = data.get(EditorCodeCompletionSingleton.GDScriptParser._Keys.TYPE)
+		var type = data.get(EditorCodeCompletionSingleton.GDScriptParser0._Keys.TYPE)
 		if type == enum_class_string or type == member_path:
 			option_dict[name] = true
 	for name in local_vars.keys():
 		var data = local_vars.get(name)
 		if not data is Dictionary:
 			continue
-		if not data.has(EditorCodeCompletionSingleton.GDScriptParser._Keys.TYPE):
+		if not data.has(EditorCodeCompletionSingleton.GDScriptParser0._Keys.TYPE):
 			continue
-		var type = data.get(EditorCodeCompletionSingleton.GDScriptParser._Keys.TYPE)
+		var type = data.get(EditorCodeCompletionSingleton.GDScriptParser0._Keys.TYPE)
 		if type == enum_class_string or type == member_path:
 			if name.find("%") > -1:
 				name = name.substr(0, name.find("%"))

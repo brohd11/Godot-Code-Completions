@@ -95,7 +95,7 @@ func _get_current_script_constants():
 		var icon_name = "Object"
 		var type = CodeEdit.CodeCompletionKind.KIND_CLASS
 		var data = constants.get(c)
-		var var_type = data.get(singleton.GDScriptParser._Keys.TYPE)
+		var var_type = data.get(singleton.GDScriptParser0._Keys.TYPE)
 		if UFile.file_exists(var_type, current_script):
 			var script = load(var_type)
 			if script is GDScript:
