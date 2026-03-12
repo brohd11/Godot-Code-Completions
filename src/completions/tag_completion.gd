@@ -10,9 +10,11 @@ func _on_editor_script_changed(script):
 
 
 func _on_code_completion_requested(script_editor:CodeEdit) -> bool:
-	var current_state = get_state()
-	if current_state != State.COMMENT:
+	var caret_context = get_caret_context()
+	if caret_context.token_state != CaretContext.TokenState.COMMENT:
 		return false
+	
+	var word_before_caret = caret_context.word_before_caret
 	
 	var current_line = script_editor.get_caret_line()
 	var caret_col = script_editor.get_caret_column()
@@ -36,7 +38,7 @@ func _on_code_completion_requested(script_editor:CodeEdit) -> bool:
 	var parts = stripped.split(" ", false)
 	
 	if parts.size() > 1:
-		if parts.size() == 2 and get_word_before_caret() == "":
+		if parts.size() == 2 and word_before_caret == "":
 			return false
 		if parts.size() > 2:
 			return false
@@ -53,7 +55,7 @@ func _on_code_completion_requested(script_editor:CodeEdit) -> bool:
 		add_completion_option(script_editor, cc_dict)
 		valid_tags.append(tag)
 	
-	var force = get_word_before_caret() == ""
+	var force = word_before_caret == ""
 	if force:
 		var tag_string = ", ".join(valid_tags)
 		print("Valid Tags: ", tag_string)

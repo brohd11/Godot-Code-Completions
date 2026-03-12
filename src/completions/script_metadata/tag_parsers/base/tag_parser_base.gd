@@ -5,7 +5,7 @@ const UString = UtilsRemote.UString
 
 const ScriptMetadata = preload("res://addons/code_completions/src/completions/script_metadata.gd")
 
-const State = ScriptMetadata.State
+const CaretContext = ScriptMetadata.CaretContext
 
 var script_metadata:ScriptMetadata
 

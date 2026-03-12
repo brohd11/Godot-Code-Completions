@@ -6,9 +6,9 @@ const UString = preload("res://addons/addon_lib/brohd/alib_runtime/utils/u_strin
 const DataAccessSearch = EditorCodeCompletionSingleton.DataAccessSearch
 
 const TagLocation = EditorCodeCompletionSingleton.TagLocation
-const State = EditorCodeCompletionSingleton.State
 
-const CaretContext = EditorCodeCompletionSingleton.EditorGDScriptParser.GDScriptParser.CaretContext
+const GDScriptParser = EditorCodeCompletionSingleton.EditorGDScriptParser.GDScriptParser
+const CaretContext = GDScriptParser.CaretContext
 const TokenState = CaretContext.TokenState
 const ExpressionState = CaretContext.ExpressionState
 const ScopeState = CaretContext.ScopeState
@@ -84,132 +84,14 @@ func _on_editor_script_changed(script) -> void:
 func _on_code_completion_requested(script_editor:CodeEdit) -> bool:
 	return false
 
-func get_caret_context():
-	return singleton.get_caret_context()
 
+func get_current_script():
+	return singleton.get_current_script()
 
-## Get current state of line. See members of [enum State] enum
-func get_state() -> State:
-	return singleton.get_state()
+func get_code_edit():
+	return singleton.get_code_edit()
 
-func get_current_line_text():
-	var code_edit = get_code_edit()
-	return code_edit.get_line(code_edit.get_caret_line())
-
-func get_current_class() -> String:
-	return singleton.get_current_class()
-
-func get_current_func() -> String:
-	return singleton.get_current_func()
-
-func get_class_at_line(line:int):
-	return singleton.get_class_at_line(line)
-
-## Get body and local vars of current class and func. All local vars are included, not just in-scope.
-## [method get_in_scope_body_and_local_vars] for in scope only.
-func get_body_and_local_vars():
-	return singleton.gdscript_parser.get_body_and_local_vars(get_current_class(), get_current_func())
-
-## Get body and local vars of class and func. Filters vars that are not in scope.
-func get_in_scope_body_and_local_vars():
-	return singleton.gdscript_parser.get_in_scope_body_and_local_vars()
-
-## Get enum members from GDScriptParser
-func get_enum_members(enum_name:String, _class=null):
-	return singleton.gdscript_parser.get_enum_members(enum_name, _class)
-
-func class_has_func(_func:String, _class:String="") -> bool:
-	return singleton.class_has_func(_func, _class)
-
-func get_script_constants(_class:String=""):
-	return singleton.get_script_constants(_class)
-
-func get_preload_map():
-	return singleton.get_preload_map()
-
-func get_global_script_location(script:GDScript):
-	return singleton.get_global_script_location(script)
-
-func get_func_args(_class:String, _func_name:String) -> Dictionary:
-	return singleton.get_func_args(_class, _func_name)
-
-## Check if caret
-func caret_in_func_call():
-	return singleton.completion_cache.get(singleton.CompletionCache.CARET_IN_FUNC_CALL, false)
-
-
-func caret_in_func_declaration():
-	return singleton.completion_cache.get(singleton.CompletionCache.CARET_IN_FUNC_DECLARATION, false)
-
-## Get data of current function parentheses caret is within.
-func get_func_call_data(infer_type:=false):
-	return singleton.get_func_call_data(infer_type)
-
-## Get assignment data at caret. If on the left side of "=" or comparison operator,
-## returns dictionary with left, left with inferred type, operator, right.
-func get_assignment_at_caret():
-	return singleton.get_assignment_at_caret()
-
-func is_index_in_comment(column:int=-1, line:int=-1, code_edit=null):
-	return singleton.is_index_in_comment(column, line, code_edit)
-
-func is_index_in_string(column:int=-1, line:int=-1, code_edit=null):
-	return singleton.is_index_in_string(column, line, code_edit)
-
-func is_caret_in_dict():
-	return singleton.is_caret_in_dict()
-
-func is_caret_in_enum():
-	return singleton.is_caret_in_enum()
-
-func get_word_before_caret():
-	return singleton.get_word_before_caret()
-
-func get_char_before_caret():
-	return singleton.get_char_before_caret()
-
-
-
-
-
-func split_path(script_path:String):
-	return UString.get_script_path_and_suffix(script_path)
-
-#func add_completion_options(options:Array, hide_private=null):
-	#singleton.add_code_completion_options(options, hide_private)
-
-func add_completion_option(script_editor:CodeEdit, option_dict:Dictionary) -> void:
-	script_editor.add_code_completion_option(option_dict.kind, option_dict.display_text,
-					option_dict.insert_text, option_dict.font_color, option_dict.icon, 
-					option_dict.default_value, option_dict.location)
-
-func update_completion_options(force:=false):
-	var current = get_code_edit()
-	current.update_code_completion_options(force)
-
-func get_global_class_path(_class_name:String) -> String:
-	return singleton.gdscript_parser.get_global_class_path(_class_name)
-
-func _store_data(section, key, value, script, data_cache:Dictionary):
-	singleton._store_data_in_section(section, key, value, script, data_cache)
-
-func _get_cached_data(section, key, data_cache:Dictionary):
-	return singleton._get_cached_data_in_section(section, key, data_cache)
-
-func get_string_map(text:String):
-	return singleton.get_string_map(text)
-
-func get_script_member_info_by_path(script:GDScript, member_path:String, member_hints:=UClassDetail._MEMBER_ARGS, check_global:=true):
-	return UClassDetail.get_member_info_by_path(script, member_path, member_hints, false, false, false, check_global)
-
-func get_hide_private_members_setting():
-	return singleton.hide_private_members
-
-func set_data(key, value):
-	singleton.peristent_cache[key] = value
-
-func get_data(key):
-	return singleton.peristent_cache.get(key)
+#region CompletionOptions
 
 func get_code_complete_dict(kind:CodeEdit.CodeCompletionKind, display_text, insert_text, icon_name="",
 						default_value=null, location=1024, font_color:Color=Color.LIGHT_GRAY):
@@ -240,20 +122,69 @@ func get_code_complete_dict(kind:CodeEdit.CodeCompletionKind, display_text, inse
 		"location":location,
 	}
 
+func add_completion_option(script_editor:CodeEdit, option_dict:Dictionary) -> void:
+	script_editor.add_code_completion_option(option_dict.kind, option_dict.display_text,
+					option_dict.insert_text, option_dict.font_color, option_dict.icon, 
+					option_dict.default_value, option_dict.location)
 
-func get_current_script():
-	return singleton._get_current_script()
-func get_code_edit():
-	return singleton._get_code_edit()
+func update_completion_options(force:=false):
+	var current = get_code_edit()
+	current.update_code_completion_options(force)
 
-class Assignment:
-	const LEFT = &"left"
-	const LEFT_TYPED = &"left_typed"
-	const OPERATOR = &"operator"
-	const RIGHT = &"right"
+#endregion
 
-class FuncCall:
-	const FULL_CALL = &"full_call"
-	const FULL_CALL_TYPED = &"full_call_typed"
-	const ARGS = &"args"
-	const ARG_INDEX = &"arg_index"
+
+
+
+
+func get_gdscript_parser():
+	return singleton._editor_gdscript_parser
+
+func get_caret_context():
+	return singleton.get_caret_context()
+
+
+#^^^^ new
+
+
+
+#^ OLD
+
+
+func get_global_script_location(script:GDScript):
+	return singleton.get_global_script_location(script)
+
+
+
+
+
+func get_string_map(text:String):
+	return singleton.get_string_map(text)
+
+func get_script_member_info_by_path(script:GDScript, member_path:String, member_hints:=UClassDetail._MEMBER_ARGS, check_global:=true):
+	return UClassDetail.get_member_info_by_path(script, member_path, member_hints, false, false, false, check_global)
+
+func split_path(script_path:String):
+	return UString.get_script_path_and_suffix(script_path)
+
+
+#region settings
+func get_hide_private_members_setting():
+	return singleton.hide_private_members
+
+#endregion
+
+
+
+#^ cache
+func _store_data(section, key, value, script, data_cache:Dictionary):
+	singleton._store_data_in_section(section, key, value, script, data_cache)
+
+func _get_cached_data(section, key, data_cache:Dictionary):
+	return singleton._get_cached_data_in_section(section, key, data_cache)
+
+func set_data(key, value):
+	singleton.peristent_cache[key] = value
+
+func get_data(key):
+	return singleton.peristent_cache.get(key)

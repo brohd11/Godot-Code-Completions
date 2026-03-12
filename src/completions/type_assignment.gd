@@ -1,5 +1,6 @@
 extends EditorCodeCompletion
 
+
 #! import-p UClassDetail,
 const UFile = preload("res://addons/addon_lib/brohd/alib_runtime/utils/u_file.gd")
 
@@ -13,10 +14,12 @@ func _on_editor_script_changed(script):
 
 
 func _on_code_completion_requested(script_editor:CodeEdit) -> bool:
-	if not get_state() == State.TYPE_ASSIGNMENT:
+	var caret_context = get_caret_context()
+	if not caret_context.expression_state == CaretContext.ExpressionState.TYPE_HINT:
 		return false
-	if is_caret_in_dict():
+	if caret_context.is_in_dictionary():
 		return false
+	
 	
 	var import_data = get_data("import_data")
 	var hide_global_classes = import_data.get("hide_global_classes_setting", false)
@@ -24,23 +27,32 @@ func _on_code_completion_requested(script_editor:CodeEdit) -> bool:
 	#var imported_classes = import_data.get("imported_classes")
 	var global_classes = import_data.get("global_classes", {})
 	
-	var type_string = singleton.completion_cache.get(singleton.CompletionCache.TYPE_ASSIGNMENT)
+	var type_hint_text = caret_context.get_type_hint_text()
 	
+	var class_obj = caret_context.get_current_class_object()
+	
+	
+	
+	#var d:d
 	var current_script = get_current_script()
 	var class_script = current_script
-	if type_string.find(".") > -1:
-		var class_check = type_string.substr(0, type_string.rfind("."))
+	if type_hint_text.find(".") > -1:
+		var class_check = type_hint_text.substr(0, type_hint_text.rfind("."))
 		var nested_class_script = get_script_member_info_by_path(current_script, class_check, ["const"])
 		if nested_class_script is GDScript:
 			class_script = nested_class_script
 		else:
 			return false
 	
+	
 	var options:Dictionary
 	if class_script == current_script:
-		options = _get_all_current_script_options()
+		return false # in 4.6 this is not necessary?
+		var t = ALibRuntime.Utils.UProfile.TimeFunction.new("TYPE::TIME")
+		options = _get_current_class_completion_options(class_obj)
+		t.stop()
 	else:
-		options = _get_gdscript_constants(class_script)
+		options = _get_valid_constants_from_script(class_script)
 	
 	for o in options.values():
 		add_completion_option(script_editor, o)
@@ -59,55 +71,65 @@ func _on_code_completion_requested(script_editor:CodeEdit) -> bool:
 	return true
 
 
-func _get_gdscript_constants(script):
+func _get_valid_constants_from_script(script:GDScript):
 	var options = {}
 	var constants = UClassDetail.script_get_all_constants(script, UClassDetail.IncludeInheritance.SCRIPTS_ONLY)
 	for c in constants:
 		var val = constants.get(c)
 		var add = false
-		var icon_name = "Object"
-		var type = CodeEdit.CodeCompletionKind.KIND_CLASS
+		var is_enum = false
 		if val is GDScript:
 			add = true
-		if val is Dictionary and UClassDetail.check_dict_is_enum(val):
+		elif val is Dictionary and UClassDetail.check_dict_is_enum(val):
+			is_enum = true
 			add = true
-			icon_name = "enum"
-			type = CodeEdit.CodeCompletionKind.KIND_ENUM
 		if add:
-			options[c] = get_code_complete_dict(type, c, c, icon_name, null, 0)
+			_add_dict_entry(options, c, is_enum)
+	
+	var script_type = script.get_instance_base_type()
+	var enums = ClassDB.class_get_enum_list(script_type)
+	for e in enums:
+		_add_dict_entry(options, e, true)
+	
 	return options
 
-func _get_all_current_script_options():
-	var options = _get_current_script_constants()
-	var current_script = get_current_script()
-	var base_script = current_script.get_base_script()
-	if base_script:
-		var base_options = _get_gdscript_constants(base_script)
-		options.merge(base_options)
-	return options
 
-func _get_current_script_constants():
-	var current_script = get_current_script()
+
+func _get_current_class_completion_options(class_obj:GDScriptParser.ParserClass):
 	var options = {}
-	var constants = get_script_constants(get_current_class())
-	for c in constants:
-		var add = false
-		var icon_name = "Object"
-		var type = CodeEdit.CodeCompletionKind.KIND_CLASS
-		var data = constants.get(c)
-		var var_type = data.get(singleton.GDScriptParser0._Keys.TYPE)
-		if UFile.file_exists(var_type, current_script):
-			var script = load(var_type)
-			if script is GDScript:
-				add = true
+	var class_script = class_obj.script_resource
+	
+	var parser = get_gdscript_parser()
+	
+	for c in class_obj.constants.keys():
+		var data = class_obj.constants.get(c)
+		var member_type = data.get(GDScriptParser.Keys.MEMBER_TYPE)
+		if member_type == GDScriptParser.Keys.MEMBER_TYPE_ENUM:
+			_add_dict_entry(options, c, true)
 		else:
-			var member_info = UClassDetail.get_member_info_by_path(current_script, var_type)
-			if member_info is GDScript:
-				add = true
-			if member_info is Dictionary and UClassDetail.check_dict_is_enum(member_info):
-				add = true
-				icon_name = "enum"
-				type = CodeEdit.CodeCompletionKind.KIND_ENUM
-		if add:
-			options[c] = get_code_complete_dict(type, c, c, icon_name, null, 0)
+			var type = parser.get_identifier_type(c)
+			if type.ends_with(GDScriptParser.Keys.ENUM_PATH_SUFFIX):
+				_add_dict_entry(options, c, true)
+			elif type.begins_with("res://"):
+				_add_dict_entry(options, c, false)
+	
+	for ic in class_obj.inner_classes.keys():
+		_add_dict_entry(options, ic)
+	
+	var class_base_script = class_script.get_base_script()
+	if class_base_script != null:
+		options.merge(_get_valid_constants_from_script(class_base_script))
+	
 	return options
+
+
+
+func _add_dict_entry(options_dict:Dictionary, name:String, is_enum:bool=false):
+	var icon_name = "Object"
+	var type = CodeEdit.CodeCompletionKind.KIND_CLASS
+	var location = 0
+	if is_enum:
+		icon_name = "enum"
+		type = CodeEdit.CodeCompletionKind.KIND_ENUM
+		location = 1024
+	options_dict[name] = get_code_complete_dict(type, name, name, icon_name, null, location)

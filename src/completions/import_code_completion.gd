@@ -69,6 +69,7 @@ func _singleton_ready():
 			register_tag(prefix, tag, TagLocation.START)
 
 
+
 func _init_set_settings():
 	var editor_settings = EditorInterface.get_editor_settings()
 	if not editor_settings.has_setting(Settings.HIDE_GLOBAL_SETTING):
@@ -100,6 +101,7 @@ func _on_editor_script_changed(script):
 	_get_global_and_preloads.call_deferred()
 
 
+
 func _on_code_completion_requested(script_editor:CodeEdit) -> bool:
 	data_cache.clear() #^ caching seems ok, but can get stale
 	#^g test area ^^
@@ -107,12 +109,13 @@ func _on_code_completion_requested(script_editor:CodeEdit) -> bool:
 	completion_cache.clear()
 	completion_cache[COMP_CHECKED_SCRIPTS] = {}
 	
+	#^^^^ OLD
 	var current_script = get_current_script()
 	if current_script == null:
 		return false
 	
-	var current_state = get_state()
-	if current_state == State.COMMENT:
+	var caret_context = get_caret_context()
+	if caret_context.token_state == CaretContext.TokenState.COMMENT:
 		var caret_line = script_editor.get_caret_line()
 		var current_line_text = script_editor.get_line(caret_line)
 		var import_hint_options = _import_hint_autocomplete(current_line_text)
@@ -122,55 +125,49 @@ func _on_code_completion_requested(script_editor:CodeEdit) -> bool:
 			update_completion_options()
 			return true
 		return false
-	elif current_state == State.STRING:
-		return false
-	elif current_state == State.MEMBER_ACCESS:
-		return false
-	elif current_state == State.ANNOTATION:
-		return false
-	elif is_caret_in_enum():
+	elif caret_context.token_state != CaretContext.TokenState.NONE:
 		return false
 	
-	var word_before_cursor = get_word_before_caret()
+	var has_declaration = caret_context.line_declaration != ""
+	var expression_state = caret_context.expression_state
+	if has_declaration and expression_state == CaretContext.ExpressionState.NONE:
+		return false
+	elif expression_state == CaretContext.ExpressionState.MEMBER_ACCESS:
+		return false
+	elif expression_state == CaretContext.ExpressionState.TYPE_HINT:
+		return false
+	elif caret_context.is_in_enum():
+		return false
+	elif caret_context.code_context_stripped.begins_with("func") or caret_context.code_context_stripped.begins_with("static func"):
+		return false
+	
+	
+	
+	
 	var existing_options = script_editor.get_code_completion_options()
-	var existing_size = existing_options.size()
-	#if existing_size == 0: #^ early returns
-		#if caret_in_func_declaration():
-			#return false
-		#if _SKIP_KEYWORDS.has(word_before_cursor):
-			#return false
-		#var line = script_editor.get_line(script_editor.get_caret_line())#.strip_edges()
-		#var stripped = line.strip_edges()
-		#for word in _SKIP_DECLARTIONS:
-			#if stripped.begins_with(word):
-				#return false
-		#var char_before_cursor = get_char_before_caret()
-		#if _SKIP_CHARS.has(char_before_cursor):
-			#return false
-	if existing_size < 10:
-		var is_enum = true
+	var is_enum = true
+	var t = ALibRuntime.Utils.UProfile.TimeFunction.new("ENUM CHECK")
+	if existing_options.is_empty():
+		is_enum = false
+	else:
 		for o in existing_options:
 			if o.kind != CodeEdit.CodeCompletionKind.KIND_ENUM:
+				#print(o.display_text)
 				is_enum = false
 				break
-		if is_enum:
+	t.stop()
+	if is_enum:
+		return false
+	
+	if existing_options.size() < 20:
+		if _SKIP_KEYWORDS.has(caret_context.expression_before_caret):
 			return false
-		if caret_in_func_declaration():
-			return false
-		if _SKIP_KEYWORDS.has(word_before_cursor):
-			return false
-		var line = script_editor.get_line(script_editor.get_caret_line())#.strip_edges()
-		var stripped = line.strip_edges()
-		for word in _SKIP_DECLARTIONS:
-			if stripped.begins_with(word):
-				return false
-		var char_before_cursor = get_char_before_caret()
-		if _SKIP_CHARS.has(char_before_cursor):
+		if _SKIP_CHARS.has(caret_context.char_before_caret):
 			return false
 	
+	#var options = []
+	#var options_dict:Dictionary = {}
 	
-	var options = []
-	var options_dict:Dictionary = {}
 	var cache_cc_options = _get_cached_data(IMPORT_MEMBERS_CURRENT, current_script.resource_path, data_cache)
 	if cache_cc_options == null:
 		cache_cc_options = _get_code_complete_options()
@@ -380,7 +377,8 @@ func _get_enum_options(script:GDScript, access_name:String):
 		var cc_nm = access_name + "." + e if access_name != "" else e
 		cc_options[cc_nm] = get_code_complete_dict(CodeEdit.CodeCompletionKind.KIND_ENUM,cc_nm,cc_nm,"enum")
 		
-		var enum_members = get_enum_members(e) #^ check if in current script, if so parse directly
+		#var enum_members = get_enum_members(e) #^ check if in current script, if so parse directly
+		var enum_members = null
 		if enum_members == null:
 			enum_members = enums.get(e)
 		for em in enum_members.keys():
@@ -645,7 +643,7 @@ const _SKIP_CHARS = {
 	",":true,
 }
 
-const _SKIP_DECLARTIONS = [
+const _SKIP_DECLARATIONS = [
 	"static ",
 	"func ",
 	"const",

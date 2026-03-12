@@ -8,13 +8,10 @@ const PE_STRIP_CAST_SCRIPT = preload("res://addons/code_completions/src/class/ed
 const UClassDetail = preload("res://addons/addon_lib/brohd/alib_editor/utils/src/u_class_detail.gd")
 const USort = preload("res://addons/addon_lib/brohd/alib_runtime/utils/u_sort.gd")
 const UString = preload("res://addons/addon_lib/brohd/alib_runtime/utils/u_string.gd")
-const GlobalChecker = preload("res://addons/addon_lib/brohd/alib_runtime/misc/global_checker.gd")
-const VariantChecker = preload("res://addons/addon_lib/brohd/alib_runtime/misc/variant_checker.gd")
 
 const DataAccessSearch = preload("res://addons/code_completions/src/class/data_access_search.gd")
 const CacheHelper = DataAccessSearch.CacheHelper
 
-const GDScriptParser0 = preload("res://addons/code_completions/src/class/gdscript_parser.gd")
 
 const EditorGDScriptParser = preload("res://addons/addon_lib/brohd/alib_editor/misc/parser/editor_parser.gd")
 
@@ -48,9 +45,6 @@ var hide_private_completion:HidePrivateCompletion
 var tag_completion:TagCompletion
 var const_key_completion:ConstKey
 var script_metadata:ScriptMetadata
-
-#^ singletons
-var _singleton_refs = {}
 
 
 const TimeFunction = ALibRuntime.Utils.UProfile.TimeFunction
@@ -88,17 +82,6 @@ static func instance_valid():
 static func call_on_ready(callable:Callable, printerr:=false) -> void:
 	_call_on_ready(PE_STRIP_CAST_SCRIPT, callable, printerr)
 
-enum State {
-	NONE,
-	COMMENT,
-	STRING,
-	ASSIGNMENT,
-	FUNC_ARGS,
-	MEMBER_ACCESS,
-	SCRIPT_BODY,
-	TYPE_ASSIGNMENT,
-	ANNOTATION,
-}
 
 enum TagLocation {
 	START,
@@ -116,21 +99,10 @@ enum ScriptCache {
 	#SCRIPT_PRELOADS,
 }
 
-enum CompletionCache {
-	WORD_BEFORE_CARET,
-	CHAR_BEFORE_CARET,
-	CARET_IN_FUNC_CALL,
-	FUNC_CALL,
-	FUNC_CALL_TYPED,
-	ASSIGNMENT,
-	TYPE_ASSIGNMENT,
-	CARET_IN_FUNC_DECLARATION,
-	CARET_IN_DICT,
-	CARET_IN_ENUM,
-}
+
 
 var data_access_search:DataAccessSearch
-var gdscript_parser:GDScriptParser0
+
 var _editor_gdscript_parser:EditorGDScriptParser.GDScriptParser
 var _caret_context:EditorGDScriptParser.GDScriptParser.CaretContext
 
@@ -139,26 +111,16 @@ var _global_script_constant_map_data_cache = {}
 
 var hide_private_members:=false
 
-var _current_script:GDScript
-var _current_code_edit:CodeEdit
 var _sort_queued:= false
 
 var code_completions:Dictionary = {}
 
 var peristent_cache:Dictionary = {}
 var script_cache:Dictionary = {}
-var completion_cache:Dictionary = {}
 
-var _current_line_text:String
-var _current_caret_line:int
-var _current_caret_col:int
 
-var current_state:State = State.NONE
 
-var assignment_regex:RegEx
-var type_assignment_regex:RegEx
-
-func _init(plugin) -> void:
+func _init(_node) -> void:
 	_singleton_init()
 	_init_set_settings()
 
@@ -167,7 +129,6 @@ func _all_unregistered_callback():
 
 func _ready() -> void:
 	await get_tree().create_timer(1).timeout
-	_set_code_edit(null)
 	_connect_editor()
 	
 	call_on_ready(_init_plugins)
@@ -177,25 +138,15 @@ func _ready() -> void:
 func _singleton_init():
 	_clear_cache()
 	data_access_search = DataAccessSearch.new()
-	gdscript_parser = GDScriptParser0.new()
-	gdscript_parser.code_completion_singleton = self
 
 # these should be simplified now, dont think it needs to be complex
 func _register_singletons(plugin:EditorPlugin):
 	SyntaxPlusSingleton.register_node(plugin)
 	EditorGDScriptParser.register_node(plugin)
-	
-	#var plugin_section = _singleton_refs.get_or_add(plugin, {})
-	#plugin_section["SyntaxPlus"] = SyntaxPlusSingleton.register_node(plugin)
 
 func _unregister_singletons(plugin:EditorPlugin):
 	SyntaxPlusSingleton.unregister_node(plugin)
 	EditorGDScriptParser.unregister_node(plugin)
-	
-	#var plugin_section = _singleton_refs.get_or_add(plugin, {})'
-	#var syntax_plus:SyntaxPlusSingleton = plugin_section.get("SyntaxPlus")
-	#if is_instance_valid(syntax_plus):
-		#syntax_plus.unregister_node(plugin)
 
 
 func _init_plugins() -> void:
@@ -248,7 +199,6 @@ func clear_cache():
 func _clear_cache():
 	peristent_cache.clear()
 	script_cache.clear()
-	completion_cache.clear()
 	
 	peristent_cache[PersistentCache.TAGS] = {}
 	script_cache[ScriptCache.STRING_MAPS] = {}
@@ -302,39 +252,20 @@ func sort_completions():
 
 
 func _connect_editor():
-	EditorInterface.get_script_editor().editor_script_changed.connect(_set_code_edit)
+	ScriptEditorRef.subscribe(ScriptEditorRef.Event.CODE_COMPLETION_REQUESTED, _on_code_completion_requested)
+	ScriptEditorRef.subscribe(ScriptEditorRef.Event.EDITOR_SCRIPT_CHANGED, _on_editor_script_changed)
+	
 	EditorInterface.get_resource_filesystem().filesystem_changed.connect(_on_file_system_changed)
 
 func _disconnect_editor():
-	EditorInterface.get_script_editor().editor_script_changed.disconnect(_set_code_edit)
 	EditorInterface.get_resource_filesystem().filesystem_changed.disconnect(_on_file_system_changed)
 
-func _set_code_edit(script):
-	if is_instance_valid(_current_code_edit):
-		if _current_code_edit.code_completion_requested.is_connected(_on_code_completion_requested):
-			_current_code_edit.code_completion_requested.disconnect(_on_code_completion_requested)
-	
-	var current_editor = EditorInterface.get_script_editor().get_current_editor()
-	if not is_instance_valid(current_editor):
-		return
-	_current_code_edit = current_editor.get_base_editor()
-	
-	if is_instance_valid(_current_code_edit):
-		if not _current_code_edit.code_completion_requested.is_connected(_on_code_completion_requested):
-			_current_code_edit.code_completion_requested.connect(_on_code_completion_requested.bind(_current_code_edit))
-	
-	if is_instance_valid(script):# script != null:
-		if script is not GDScript:
-			script = null
-		_on_editor_script_changed(script)
-		_current_script = script
 
 func _on_editor_script_changed(script):
 	_prep_script(script)
 
-
 func _on_file_system_changed():
-	var current_script = _get_current_script()
+	var current_script = get_current_script()
 	_prep_script(current_script)
 	_build_global_script_constant_map()
 
@@ -342,26 +273,15 @@ func _prep_script(script):
 	script_cache.clear()
 	script_cache[ScriptCache.STRING_MAPS] = {}
 	
-	if is_instance_valid(script):# script != null:
-		#gdscript_parser.on_script_changed(script)
-		
-		
-		
+	if is_instance_valid(script):
 		for editor_code_completion in code_completions.keys():
 			editor_code_completion._on_editor_script_changed(script)
 
 
-func get_caret_context():
-	return _caret_context
-
-func _reset_caret_context():
-	_caret_context = null
-	_editor_gdscript_parser.reset_caret_context()
-
-
-func _on_code_completion_requested(script_editor:CodeEdit) -> void:
-	completion_cache.clear()
-	_pre_request_checks(script_editor)
+func _on_code_completion_requested() -> void:
+	var script_editor = get_code_edit()
+	_reset_caret_context()
+	
 	var t = TimeFunction.new("MAIN CONTEXT")
 	_caret_context = _editor_gdscript_parser.get_caret_context()
 	t.stop()
@@ -375,401 +295,27 @@ func _on_code_completion_requested(script_editor:CodeEdit) -> void:
 	
 	_reset_caret_context()
 
-
-func _pre_request_checks(script_editor:CodeEdit):
-	_current_caret_line = script_editor.get_caret_line()
-	_current_line_text = script_editor.get_line(_current_caret_line)
-	_current_caret_col = script_editor.get_caret_column()
-	
-	gdscript_parser.on_completion_requested() #^ this needs to be before for get_current_func to work
-	
-	var in_func_call_check = _in_func_call_check(_current_line_text, _current_caret_col) #^ check first to populate CARET_IN_FUNC
-	current_state = State.NONE
-	if is_index_in_string(_current_caret_col, _current_caret_line, script_editor):
-		current_state = State.STRING
-	elif is_index_in_comment(_current_caret_col, _current_caret_line, script_editor):
-		current_state = State.COMMENT
-	elif _in_type_assignment():
-		current_state = State.TYPE_ASSIGNMENT
-	elif get_word_before_caret().find(".") > -1:
-		current_state = State.MEMBER_ACCESS
-	elif in_func_call_check:
-		current_state = State.FUNC_ARGS
-	elif _get_assignment_at_caret(_current_line_text, _current_caret_col) != null:
-		current_state = State.ASSIGNMENT
-	#elif get_current_func() == GDScriptParser.Keys.CLASS_BODY:
-		#if _current_line_text.begins_with("@"):
-			#current_state = State.ANNOTATION
-		#else:
-			#current_state = State.SCRIPT_BODY
-	
-
+func _reset_caret_context():
+	_caret_context = null
+	_editor_gdscript_parser.reset_caret_context()
 
 #region API
 
-func get_state() -> State:
-	return current_state
+func get_current_script():
+	return ScriptEditorRef.get_current_script()
 
-func get_current_class() -> String:
-	return gdscript_parser.current_class
+func get_code_edit() -> CodeEdit:
+	return ScriptEditorRef.get_current_code_edit()
 
-func get_current_func() -> String:
-	return gdscript_parser.current_func
-
-func class_has_func(_func:String, _class:String):
-	return gdscript_parser.class_has_func(_func, _class)
-
-func get_func_args_and_return(_class:String, _func:String):
-	return gdscript_parser.get_func_args_and_return(_class, _func)
-
-func get_func_args(_class:String, _func:String):
-	return gdscript_parser.get_func_args(_class, _func)
-
-func get_func_return(_class:String, _func:String):
-	return gdscript_parser.get_func_return(_class, _func)
-
-
-func get_script_constants(_class:String=""):
-	return gdscript_parser.get_script_constants(_class)
-
-func get_preload_map():
-	return gdscript_parser.get_preload_map()
-
-
-func get_var_type(var_name:String):
-	return gdscript_parser.get_var_type(var_name)
-
-func property_info_to_type(property_info) -> String:
-	var type = gdscript_parser.property_info_to_type(property_info)
-	return type
+func get_caret_context():
+	return _caret_context
 
 func get_script_member_info_by_path(script:GDScript, member_path:String, member_hints:=UClassDetail._MEMBER_ARGS, check_global:=true):
 	return UClassDetail.get_member_info_by_path(script, member_path, member_hints, false, false, false, check_global)
 
-func get_script_alias(access_path:String, data=null):
-	return gdscript_parser.data_access_search.check_for_script_alias(access_path, data)
 
 func get_global_script_location(script:GDScript):
 	return global_script_constant_map.get(script)
-
-#endregion
-
-
-func get_assignment_at_caret():
-	var script_editor = _get_code_edit()
-	var line_text = script_editor.get_line(script_editor.get_caret_line())
-	var caret_col = script_editor.get_caret_column()
-	var assignment_data = _get_assignment_at_caret(line_text, caret_col)
-	if assignment_data == null:
-		return null
-	var left = assignment_data.get(EditorCodeCompletion.Assignment.LEFT, "")
-	var left_typed = ""
-	if left.begins_with("var "):
-		var trimmed = left.trim_prefix("var ")
-		var data = UString.get_var_name_and_type_hint_in_line(left)
-		if data != null:
-			left_typed = get_var_type(data[1])
-	else:
-		left_typed = get_var_type(left)
-	
-	print("OLD: %s -> NEW: %s" % [left_typed, _caret_context.get_operation_data().left_type])
-	assignment_data[EditorCodeCompletion.Assignment.LEFT_TYPED] = left_typed
-	return assignment_data
-
-
-func _get_assignment_at_caret(line_text: String, caret_col: int):
-	if completion_cache.has(CompletionCache.ASSIGNMENT):
-		return completion_cache[CompletionCache.ASSIGNMENT]
-	
-	#if line_text.rfind("=", caret_col) == -1: # alternative to above, if not on right side no need to do
-	if UString.rfind_index_safe(line_text, "=", caret_col) == -1: 
-		completion_cache[CompletionCache.ASSIGNMENT] = null
-		return null
-	
-	if not is_instance_valid(assignment_regex):
-		assignment_regex = RegEx.new()
-		var pattern = r"((?:var\s+)?\w+(?:\(.*?\))?(?:\.\w+(?:\(.*?\))?)*(?:\s*:\s*[\w.]+)?)\s*(=\s*=|:\s*=|!\s*=|=)(.*?)(?=\s*(?:or|and|&&|\|\|)|$)"
-		assignment_regex.compile(pattern)
-	
-	var matches = assignment_regex.search_all(line_text)
-	if not matches.is_empty():
-		for i in range(matches.size() - 1, -1, -1):
-			var _match = matches[i] as RegExMatch
-			if _match.get_start(2) <= caret_col:
-				var best_match = _match
-				var rhs = best_match.get_string(3).strip_edges()
-				if rhs.find("=") > -1: #^ search for a 2nd assignment
-					var nested_matches = assignment_regex.search_all(rhs)
-					for nm in range(nested_matches.size() - 1, -1, -1):
-						var nested_match = nested_matches[nm]
-						if nested_match.get_start(2) <= caret_col:
-							best_match = nested_match
-							rhs = best_match.get_string(3).strip_edges()
-				
-				var lhs = best_match.get_string(1).strip_edges()
-				var last_char_idx = best_match.get_end(1) - 1
-				var operator = best_match.get_string(2).strip_edges()
-				
-				#var and_index = lhs.rfind(" and ", caret_col)
-				var and_index = UString.rfind_index_safe(lhs, " and ", caret_col)
-				if and_index > -1:
-					lhs = lhs.substr(and_index + 5)
-				#var or_index = lhs.rfind(" or ", caret_col)
-				var or_index = UString.rfind_index_safe(lhs, " or ", caret_col)
-				if or_index > -1:
-					lhs = lhs.substr(or_index + 4)
-				#var bitwise_index = lhs.rfind("&&", caret_col)
-				var bitwise_index = UString.rfind_index_safe(lhs, "&&", caret_col)
-				if bitwise_index > -1:
-					lhs = lhs.substr(bitwise_index + 2)
-				
-				lhs = lhs.trim_prefix("self.") #^ simple sub
-				
-				var data = {
-					EditorCodeCompletion.Assignment.LEFT: lhs,
-					EditorCodeCompletion.Assignment.OPERATOR: operator,
-					EditorCodeCompletion.Assignment.RIGHT: rhs }
-				
-				completion_cache[CompletionCache.ASSIGNMENT] = data
-				return data
-	
-	completion_cache[CompletionCache.ASSIGNMENT] = null
-	return null
-
-
-#region Func Call
-## Return func call state. Sets CARET_IN_FUNC cache status. Caret can be in func parentheses but not in func call state.
-func _in_func_call_check(current_line_text:String, current_caret_col:int):
-	var stripped = current_line_text.strip_edges()
-	var in_declar = stripped.begins_with("func") or stripped.begins_with("static func")
-	if in_declar:
-		completion_cache[CompletionCache.CARET_IN_FUNC_DECLARATION] = true
-	
-	var func_data = _get_func_call_data(current_line_text, current_caret_col)
-	if func_data.is_empty() or in_declar:
-		completion_cache[CompletionCache.CARET_IN_FUNC_CALL] = false
-		return false
-	
-	completion_cache[CompletionCache.CARET_IN_FUNC_CALL] = true
-	completion_cache[CompletionCache.CARET_IN_FUNC_DECLARATION] = false
-	var arg_text = func_data[EditorCodeCompletion.FuncCall.ARGS][func_data[EditorCodeCompletion.FuncCall.ARG_INDEX]]
-	#if arg_text.rfind("=", current_caret_col) > -1: # does this work? May need adjusting
-	if UString.rfind_index_safe(arg_text, "=", current_caret_col) > -1:
-		return false
-	return true
-
-func get_func_call_data(infer_type:=false):
-	var script_editor = _get_code_edit()
-	var caret_col = script_editor.get_caret_column()
-	var current_line_text = script_editor.get_line(script_editor.get_caret_line())
-	var func_call_data = _get_func_call_data(current_line_text, caret_col)
-	if func_call_data.is_empty():
-		return null
-	if not infer_type:
-		return func_call_data
-	if completion_cache.has(CompletionCache.FUNC_CALL_TYPED):
-		return completion_cache[CompletionCache.FUNC_CALL_TYPED]
-	
-	var full_call = func_call_data.get(EditorCodeCompletion.FuncCall.FULL_CALL, "")
-	if full_call.find(".") > -1:
-		var string_map = get_string_map(full_call) #^ trim method so we can just infer object types
-		var trimmed = UString.trim_member_access_back(full_call, string_map)
-		var method_call = UString.get_member_access_back(full_call, string_map)
-		var full_call_typed = get_var_type(trimmed)# + "()")
-		full_call_typed = full_call_typed + "." + method_call
-		func_call_data[EditorCodeCompletion.FuncCall.FULL_CALL_TYPED] = full_call_typed
-	
-	completion_cache[CompletionCache.FUNC_CALL_TYPED] = func_call_data
-	return func_call_data
-
-func _get_func_call_data(current_line_text:String, caret_col:int) -> Dictionary:
-	if completion_cache.has(CompletionCache.FUNC_CALL):
-		return completion_cache.get(CompletionCache.FUNC_CALL)
-	
-	if UString.rfind_index_safe(current_line_text, "(", caret_col) == -1:
-	#if current_line_text.rfind("(", caret_col) == -1: #TODO need to check multiline in this case
-		return {} # if not in a bracket no need to check
-	
-	var string_map = get_string_map(current_line_text)
-	var bracket_map = string_map.bracket_map
-	var string_indexes = string_map.string_mask
-	if string_map.has_errors or bracket_map.is_empty():
-		return {}
-	
-	var open_bracket_index = 0
-	var closed_bracket_index = current_line_text.length()
-	var bracket_map_keys = bracket_map.keys()
-	bracket_map_keys.sort()
-	for open in bracket_map_keys:
-		if open > caret_col:
-			break
-		var char = current_line_text[open]
-		if char != "(":
-			continue
-		var close = bracket_map.get(open)
-		if not (open <= caret_col and close >= caret_col):
-			continue
-		
-		if close - open < closed_bracket_index - open_bracket_index:
-			open_bracket_index = open
-			closed_bracket_index = close
-	
-	var func_full_call = _parse_identifier_at_position(current_line_text, open_bracket_index - 1, string_map)
-	if func_full_call == "":
-		return {}
-	
-	func_full_call = func_full_call.trim_prefix("self.") #^ simple check
-	
-	var arg_idxs = []
-	var current_arg_index = 0
-	var count = closed_bracket_index
-	while count >= open_bracket_index:
-		count -= 1
-		if string_indexes[count] == 1:
-			continue
-		var char = current_line_text[count]
-		if char == ")" or char == "}" or char == "]":
-			count = bracket_map[count]
-		
-		if char == ",":
-			if caret_col > count:
-				current_arg_index += 1
-			arg_idxs.append(count)
-	
-	arg_idxs.reverse()
-	var arg_array = []
-	var start_index = open_bracket_index + 1
-	for i in arg_idxs:
-		var substr_length = i - start_index
-		var arg = current_line_text.substr(start_index, substr_length).strip_edges()
-		arg_array.append(arg)
-		start_index = i + 1
-	
-	var last_arg = current_line_text.substr(start_index, closed_bracket_index - start_index).strip_edges()
-	arg_array.append(last_arg)
-	
-	var data = {
-		EditorCodeCompletion.FuncCall.FULL_CALL: func_full_call,
-		EditorCodeCompletion.FuncCall.ARGS: arg_array,
-		EditorCodeCompletion.FuncCall.ARG_INDEX: current_arg_index}
-	completion_cache[CompletionCache.FUNC_CALL] = data
-	return data
-
-func _parse_identifier_at_position(text:String, start_pos:int, string_map):
-	var current_pos = start_pos
-	var name_start_pos = start_pos + 1
-	var last_char = ""
-	while current_pos >= 0:
-		if string_map.string_mask[current_pos] == 1:
-			current_pos -= 1
-			continue
-		
-		var char = text[current_pos]
-		if char == ")" or char == "]" or char == "}":
-			current_pos = string_map.bracket_map.get(current_pos, current_pos)
-		
-		if not char.is_valid_ascii_identifier() and char != ".":
-			var valid = false
-			if char == ")" and last_char == ".":
-				valid = true
-			if char in UString.NUMBERS:
-				valid = true
-			
-			if not valid:
-				break
-		
-		last_char = char
-		name_start_pos = current_pos
-		current_pos -= 1
-	
-	return text.substr(name_start_pos, start_pos - name_start_pos + 1)
-
-#endregion
-
-func _in_type_assignment():
-	if _current_caret_col == 0:
-		return false
-	
-	var relevant_text = _current_line_text.substr(0, _current_caret_col).strip_edges()
-	if relevant_text == "":
-		return false
-	
-	if not is_instance_valid(type_assignment_regex):
-		type_assignment_regex = RegEx.new()
-		var pattern = "(?:\\s*is not\\s+|\\s*is\\s+|\\s*as\\s+|\\s*extends\\s+|[\\w.]+\\s*:\\s*|\\->\\s*)([\\w.]*)$"
-		type_assignment_regex.compile(pattern)
-	
-	var _match = type_assignment_regex.search(relevant_text)
-	if _match:
-		completion_cache[CompletionCache.TYPE_ASSIGNMENT] = _match.get_string(1)
-		return true
-	else:
-		return false
-
-func get_word_before_caret():
-	if completion_cache.has(CompletionCache.WORD_BEFORE_CARET):
-		return completion_cache[CompletionCache.WORD_BEFORE_CARET]
-	var string_map = get_string_map(_current_line_text)
-	var identifier = _parse_identifier_at_position(_current_line_text, _current_caret_col - 1, string_map)
-	completion_cache[CompletionCache.WORD_BEFORE_CARET] = identifier
-	#print("WORD BEFORE CARET: ", identifier)
-	return identifier
-
-func get_char_before_caret():
-	var i = _current_caret_col - 1
-	var char = ""
-	while i >= 0:
-		char = _current_line_text[i]
-		if char != " ":
-			break
-		i -= 1
-	completion_cache[CompletionCache.CHAR_BEFORE_CARET] = char
-	#print("CHAR BEFORE CARET: ", char)
-	return char
-
-
-func is_index_in_comment(column:int=-1, line:int=-1, code_edit=null):
-	if code_edit == null:
-		code_edit = _get_code_edit() as CodeEdit
-	if line == -1:
-		line = code_edit.get_caret_line()
-	if column == -1:
-		column = code_edit.get_caret_column()
-	return code_edit.is_in_comment(line, column) > -1
-
-func is_index_in_string(column:int=-1, line:int=-1, code_edit=null):
-	if code_edit == null:
-		code_edit = _get_code_edit() as CodeEdit
-	if line == -1:
-		line = code_edit.get_caret_line()
-	if column == -1:
-		column = code_edit.get_caret_column()
-	return code_edit.is_in_string(line, column) > -1
-
-func is_caret_in_dict():
-	if completion_cache.has(CompletionCache.CARET_IN_DICT):
-		return completion_cache[CompletionCache.CARET_IN_DICT]
-	_check_caret_in_dict_or_enum()
-	return completion_cache[CompletionCache.CARET_IN_DICT]
-
-func is_caret_in_enum():
-	if completion_cache.has(CompletionCache.CARET_IN_ENUM):
-		return completion_cache[CompletionCache.CARET_IN_ENUM]
-	_check_caret_in_dict_or_enum()
-	return completion_cache[CompletionCache.CARET_IN_ENUM]
-
-func _check_caret_in_dict_or_enum():
-	
-	var in_dict = gdscript_parser.is_caret_in_dict_or_enum()
-	if in_dict == 0:
-		completion_cache[CompletionCache.CARET_IN_DICT] = false
-		completion_cache[CompletionCache.CARET_IN_ENUM] = false
-	elif in_dict == 1:
-		completion_cache[CompletionCache.CARET_IN_DICT] = true
-		completion_cache[CompletionCache.CARET_IN_ENUM] = false
-	elif in_dict == 2:
-		completion_cache[CompletionCache.CARET_IN_DICT] = false
-		completion_cache[CompletionCache.CARET_IN_ENUM] = true
 
 func get_string_map(text:String, mode:UString.StringMap.Mode=UString.StringMap.Mode.FULL, print_err:=false) -> UString.StringMap:
 	if script_cache[ScriptCache.STRING_MAPS].has(text):
@@ -778,23 +324,11 @@ func get_string_map(text:String, mode:UString.StringMap.Mode=UString.StringMap.M
 	script_cache[ScriptCache.STRING_MAPS][text] = string_map
 	return string_map
 
-func _get_current_script():
-	#if _current_script == null:
-	var script = ScriptEditorRef.get_current_script()
-	if script is GDScript:
-		_current_script = script
-	else:
-		_current_script = null
-	return _current_script
-
-func _get_code_edit() -> CodeEdit:
-	if not is_instance_valid(_current_code_edit):# == null:
-		var ce = ScriptEditorRef.get_current_code_edit()
-		if is_instance_valid(ce):
-			_current_code_edit = ce
-	return _current_code_edit
+#endregion
 
 
+
+#^ cache
 func _store_data_in_section(section, key, value, script, data_cache:Dictionary):
 	if not data_cache.has(section):
 		data_cache[section] = {}
@@ -814,10 +348,7 @@ func _get_cached_data_in_section(section, key, data_cache:Dictionary):
 
 
 
-
-
 func _build_global_script_constant_map():
-	
 	global_script_constant_map.clear()
 	var global_classes = UClassDetail.get_all_global_class_paths()
 	for _name in global_classes.keys():

@@ -6,15 +6,15 @@ func _get_completion_settings() -> Dictionary:
 	}
 
 func _on_code_completion_requested(script_editor:CodeEdit) -> bool:
-	var current_state = get_state()
-	if current_state != State.MEMBER_ACCESS: # only hide when accessing a member, want to see private in own class
+	var caret_context = get_caret_context()
+	if caret_context.expression_state != CaretContext.ExpressionState.MEMBER_ACCESS:
 		return false
 	
 	var hide_private_members = singleton.hide_private_members
 	if hide_private_members == false:
 		return false
 	
-	var word_at_cursor = get_word_before_caret()
+	var word_at_cursor = caret_context.expression_before_caret
 	var last_part = UString.get_member_access_back(word_at_cursor)
 	if last_part.begins_with("_"):
 		return false

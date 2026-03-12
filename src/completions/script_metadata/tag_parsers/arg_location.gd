@@ -35,19 +35,22 @@ func _get_tags_in_line(tag_string:String):
 		#print(working_str)
 		data[arg_name] = location
 	return data
-
+#! arg_location script_editor:Nest
 func code_completion_requested(script_editor:CodeEdit) -> bool:
 	var current_script = script_metadata.get_current_script()
-	var state = script_metadata.get_state() as State
-	if state == State.COMMENT:
-		if not _is_caret_in_tag_type_declaration(script_editor):
+	
+	var caret_context = script_metadata.get_caret_context()
+	if caret_context.token_state == CaretContext.TokenState.COMMENT:
+		print("IN COMMENT")
+		if not _is_caret_in_tag_type_declaration(caret_context):
 			return false
-		print("YUP")
-		var word_before_cursor = script_metadata.get_word_before_caret()
+		print("IN COMMENT TYPE")
+		var word_before_cursor = caret_context.expression_before_caret
 		
+		var current_class = caret_context.current_class
 		
-		if script_metadata.get_current_class() != "":
-			current_script = UClassDetail.get_member_info_by_path(current_script, script_metadata.get_current_class())
+		if current_class != "":
+			current_script = UClassDetail.get_member_info_by_path(current_script, current_class)
 		
 		var script_to_list = current_script
 		if word_before_cursor == "" or not word_before_cursor.contains("."):
@@ -65,20 +68,19 @@ func code_completion_requested(script_editor:CodeEdit) -> bool:
 		return true
 		#test_method()
 	
-	elif state == State.FUNC_ARGS:
-		
-		var func_call_data = script_metadata.get_func_call_data(true)
-		var data = UClassDetail.get_member_info_by_path(current_script, func_call_data.full_call)
+	elif caret_context.is_in_function_call():
+		var function_call_data = caret_context.get_function_call_data()
+		var data = UClassDetail.get_member_info_by_path(current_script, function_call_data.full_call)
 		
 		if data != null:
 			var metadata = get_arg_location_metadata()
 			print("META ", metadata)
 			if metadata == null:
 				return false
-			var method_data = metadata.get(func_call_data.full_call)
+			var method_data = metadata.get(function_call_data.full_call)
 			if not method_data:
 				return false
-			var current_arg_idx = func_call_data.get(EditorCodeCompletion.FuncCall.ARG_INDEX)
+			var current_arg_idx = function_call_data.current_arg_index
 			var args = data.get("args")
 			var arg_data = args[current_arg_idx]
 			if not method_data.has(arg_data.name):
@@ -110,8 +112,7 @@ func code_completion_requested(script_editor:CodeEdit) -> bool:
 					var cc_dict = script_metadata.get_code_complete_dict(CodeEdit.CodeCompletionKind.KIND_CONSTANT, full_path, full_path, "String")
 					script_metadata.add_completion_option(script_editor, cc_dict)
 			
-			#print(func_call_data.args[current_arg_idx])
-			script_metadata.update_completion_options(func_call_data.args[current_arg_idx] == "")
+			script_metadata.update_completion_options(function_call_data.get_text_current_arg() == "")
 			return true
 	
 	return false
@@ -120,8 +121,11 @@ func code_completion_requested(script_editor:CodeEdit) -> bool:
 
 
 
-func _syntax_highlighting(_script_editor:CodeEdit, current_line_text:String, _line_idx:int, comment_tag_idx:int):
-	var current_script = _get_current_class_script(_line_idx)
+func _syntax_highlighting(_script_editor:CodeEdit, current_line_text:String, line_idx:int, comment_tag_idx:int):
+	var parser = script_metadata.get_gdscript_parser()
+	var current_class = parser.get_class_at_line(line_idx)
+	var current_class_obj = parser.get_class_object(current_class)
+	var current_script = current_class_obj.script_resource
 	var hl_info = {}
 	var current_line_comment = current_line_text.substr(comment_tag_idx)
 	var stripped_tag = current_line_comment.trim_prefix("#!").strip_edges()
@@ -172,19 +176,9 @@ func _syntax_highlighting(_script_editor:CodeEdit, current_line_text:String, _li
 	return hl_info
 
 
-func _get_current_class_script(line:int=-1):
-	var current_script = script_metadata.get_current_script()
-	var _class = script_metadata.get_current_class()
-	if line != -1:
-		_class = script_metadata.get_class_at_line(line)
-	if _class != "":
-		current_script = UClassDetail.get_member_info_by_path(current_script, _class)
-	
-	#Dart.test_nest()
-	return current_script
 
 
-#! arg_location my_setting:Dart.Nested 
+#! arg_location my_setting:Dart.Nested test_2:Dart.Nested.Keep.Going
 ## THIS IS A DOC COMMENT
 func test_method(my_setting:String, test_2:String):
 	#Dart.test_nest()
@@ -222,12 +216,11 @@ func get_arg_location_metadata(path:=""):
 	var meta = script_metadata.get_script_metadata(path)
 	return meta.get(TAG)
 
-func _is_caret_in_tag_type_declaration(script_editor:CodeEdit):
-	var current_line_text = script_metadata.get_current_line_text()
-	if not current_line_text.strip_edges().begins_with("#! " + TAG):
+func _is_caret_in_tag_type_declaration(caret_context:CaretContext):
+	if not caret_context.current_line_text.strip_edges().begins_with("#! " + TAG):
 		return false
-	var word_before_caret = script_metadata.get_word_before_caret()
-	var stripped_text = current_line_text.left(script_editor.get_caret_column())
-	if stripped_text.trim_suffix(word_before_caret).strip_edges().ends_with(":"):
+	var left = caret_context.current_line_text.left(caret_context.caret_column)
+	print("LEFT::", left,"::EXPR::", caret_context.expression_before_caret, "::STRIPPED::", left.trim_suffix(caret_context.expression_before_caret).strip_edges())
+	if left.trim_suffix(caret_context.expression_before_caret).strip_edges().ends_with(":"):
 		return true
 	return false

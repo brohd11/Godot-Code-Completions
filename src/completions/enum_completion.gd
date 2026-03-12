@@ -154,29 +154,31 @@ func get_enum_script_data(class_path:String):
 		enum_name = UString.get_member_access_back(suffix)
 		enum_access = UString.trim_member_access_back(suffix)
 	
-	return {"script_path": script_path, "enum_access":enum_access, "enum_name":enum_name}
+	return {"enum_script_path": script_path, "enum_access":enum_access, "enum_name":enum_name}
 
 func _add_custom_enum_members(script_data:Dictionary, type_hint:String=""):
-	var script_path = script_data.get("script_path")
+	var enum_script_path = script_data.get("enum_script_path")
 	var enum_access = script_data.get("enum_access")
 	var enum_name = script_data.get("enum_name")
 	var force = script_data.get("force", false)
-	var main_script = load(script_path)
-	var enum_script = main_script
+	var enum_main_script = load(enum_script_path) as GDScript
+	var enum_parent_script = enum_main_script
 	if enum_access != "":
-		enum_script = get_script_member_info_by_path(main_script, enum_access)
+		enum_parent_script = get_script_member_info_by_path(enum_main_script, enum_access)
 	
-	var enum_members = get_script_member_info_by_path(enum_script, enum_name)
+	var enum_members = get_script_member_info_by_path(enum_parent_script, enum_name)
 	if enum_members == null:
 		return false
 	var current_script = get_current_script()
-	var path_to_enum = UClassDetail.script_get_member_by_value(current_script, main_script)
-	if path_to_enum != null:
+	var path_to_enum = UClassDetail.script_get_member_by_value(current_script, enum_main_script)
+	if path_to_enum != null: # enum parent script is nested in current script
 		path_to_enum = UString.dot_join(path_to_enum, enum_name)
+	elif enum_main_script.get_global_name() != "": # enum script in global
+		path_to_enum = UString.dot_join(enum_main_script.get_global_name(), UString.dot_join(enum_access, enum_name))
 	else:
 		
 		#^ TO REWORK - Should be easier, maybe just provide a hint also the actual mapping could be reworked too
-		var global_locations = get_global_script_location(main_script)
+		var global_locations = get_global_script_location(enum_main_script)
 		print("TYPE HINT::", type_hint,"::GLOBAL ",global_locations)
 		if global_locations != null:
 			if type_hint != "":
@@ -186,11 +188,17 @@ func _add_custom_enum_members(script_data:Dictionary, type_hint:String=""):
 					var path = location_data.get("member_access")
 					path = UString.dot_join(front, path)
 					path_to_enum = UString.dot_join(path, enum_name)
+			else:
+				var location_data = global_locations[global_locations.keys()[0]]
+				var path = location_data.get("member_access")
+				path_to_enum = UString.dot_join(path, enum_name)
+				pass
 		#^ TO REWORK
 	print("PATH ", path_to_enum)
 	
 	#var tff = tf.new("", )
 	return _add_enum_code_completions(path_to_enum, enum_members.keys(), [], force)
+
 
 const TF = P.TimeFunction
 const G = ALibRuntime.Utils
@@ -282,6 +290,7 @@ func _add_enum_code_completions(access_path:String, enum_members:Array, other_op
 			script_editor.add_code_completion_option(CodeEdit.KIND_VARIABLE, option, option, Color.GRAY, prop_icon)
 	
 	script_editor.update_code_completion_options(force_update)
+	
 	return true
 
 
@@ -332,20 +341,21 @@ func tf_test(tf:ALibRuntime.Utils.UProfile.TimeFunction.TimeScale):
 
 
 func _var_assign() -> bool:
-	var assignment_data = get_assignment_at_caret()
+	#var assignment_data = get_assignment_at_caret()
+	var assignment_data = {}
 	if assignment_data == null:
 		return false
-	var left = assignment_data.get(Assignment.LEFT)
-	var operator = assignment_data.get(Assignment.OPERATOR)
-	var right = assignment_data.get(Assignment.RIGHT)
+	var left = assignment_data.get("")
+	var operator = assignment_data.get("")
+	var right = assignment_data.get("")
 	#if right != "" and get_word_before_caret() != "":
 		#return false #^ remove so you can type what you want
 	
 	if left.begins_with("var"):
-		var left_typed = assignment_data.get(Assignment.LEFT_TYPED, "")
+		var left_typed = assignment_data.get("", "")
 		return _process_to_enum_data(left_typed)
 	else:
-		var left_typed = assignment_data.get(Assignment.LEFT_TYPED, "")
+		var left_typed = assignment_data.get("", "")
 		if left_typed.ends_with(")") and operator == "==": # converts to dict
 			printerr("FUNC COMPARISON BRANCH: ", left_typed)
 			return false
@@ -355,11 +365,12 @@ func _var_assign() -> bool:
 
 func _func_call() -> bool:
 	var current_script = get_current_script()
-	var func_call_data = get_func_call_data()
-	var full_call:String = func_call_data.get(FuncCall.FULL_CALL)
+	#var func_call_data = get_func_call_data()
+	var func_call_data ={}
+	var full_call:String = func_call_data.get("")
 	var full_call_typed:String
-	var current_arg_idx = func_call_data.get(FuncCall.ARG_INDEX)
-	var current_args = func_call_data.get(FuncCall.ARGS)
+	var current_arg_idx = func_call_data.get("")
+	var current_args = func_call_data.get("")
 	
 	if current_arg_idx < current_args.size():
 		var arg_text = current_args[current_arg_idx]
@@ -371,8 +382,8 @@ func _func_call() -> bool:
 	var func_method = full_call
 	
 	if full_call.find(".") > -1:
-		func_call_data = get_func_call_data(true)
-		full_call_typed = func_call_data.get(FuncCall.FULL_CALL_TYPED)
+		#func_call_data = get_func_call_data(true)
+		full_call_typed = func_call_data.get("")
 		#print("FULL CALL TYPED ", full_call_typed)
 		var rfind_idx = full_call_typed.rfind(".") #^ full call omits parenthesis in final method
 		func_method = full_call_typed.substr(rfind_idx + 1) #^ doesn't need to be bracket safe
@@ -384,9 +395,11 @@ func _func_call() -> bool:
 	
 	var data
 	if not external_method: #^c internal method
-		var current_class = get_current_class()
-		if class_has_func(func_method, current_class):
-			var func_args = get_func_args(current_class, func_method)
+		var current_class = get_caret_context().current_class
+		#if class_has_func(func_method, current_class):
+		if false:
+			#var func_args = get_func_args(current_class, func_method)
+			var func_args = {}
 			if func_args.has("args"): #^ args from property info
 				data = func_args #^ set to data to process below, property info
 			else: #^ data from script map
@@ -435,6 +448,20 @@ func _func_call() -> bool:
 		
 		return _process_to_enum_data(arg_data, current_arg_idx == 0)
 	return false
+
+
+#region Placeholders
+
+func get_enum_members(enum_name:String, _class=null):
+	pass
+
+
+
+
+
+#endregion
+
+
 
 
 func _process_to_enum_data(input_data, force_update:=false):
@@ -520,7 +547,7 @@ func _process_input_data_string(input_data:String):
 	var member_path = input_data
 	var script_editor_current_script = get_current_script()
 	var current_script = script_editor_current_script
-	var current_class = get_current_class()
+	var current_class = get_caret_context().current_class
 	if current_class != "":
 		current_script = get_script_member_info_by_path(current_script, current_class, ["const"])
 		if current_script == null:
@@ -654,16 +681,16 @@ func _get_enum_vars(processed_data:Dictionary) -> Array:
 	if not show_member_suggestions:
 		return []
 	#var t = ALibRuntime.Utils.UProfile.TimeFunction.new("Get enum vars")
-	var current_class = get_current_class()
+	var current_class = get_caret_context().current_class
 	var current_assigned = ""
-	if get_state() == State.ASSIGNMENT:
-		var assignment_data = get_assignment_at_caret()
-		var left = assignment_data.get(Assignment.LEFT, "")
-		if left.find(".") == -1 or left.begins_with("var "):
-			if not left.begins_with("var "):
-				left = "var " + left
-			var var_data = UString.get_var_name_and_type_hint_in_line(left)
-			current_assigned = var_data[0]
+	#if get_state() == State.ASSIGNMENT:
+		#var assignment_data = get_assignment_at_caret()
+		#var left = assignment_data.get(Assignment.LEFT, "")
+		#if left.find(".") == -1 or left.begins_with("var "):
+			#if not left.begins_with("var "):
+				#left = "var " + left
+			#var var_data = UString.get_var_name_and_type_hint_in_line(left)
+			#current_assigned = var_data[0]
 	
 	var enum_class_string = processed_data.enum_class
 	var enum_script = processed_data.enum_script
@@ -679,7 +706,8 @@ func _get_enum_vars(processed_data:Dictionary) -> Array:
 	var script_editor = get_code_edit()
 	var current_line = script_editor.get_caret_line()
 	
-	var current_vars = get_in_scope_body_and_local_vars()
+	#var current_vars = get_in_scope_body_and_local_vars()
+	var current_vars = []
 	var body_vars = current_vars.body
 	var local_vars = current_vars.local
 	for name in body_vars.keys():
@@ -690,18 +718,18 @@ func _get_enum_vars(processed_data:Dictionary) -> Array:
 		var data = body_vars.get(name)
 		if not data is Dictionary:
 			continue
-		if not data.has(EditorCodeCompletionSingleton.GDScriptParser0._Keys.TYPE):
+		if not data.has(""):
 			continue
-		var type = data.get(EditorCodeCompletionSingleton.GDScriptParser0._Keys.TYPE)
+		var type = data.get("")
 		if type == enum_class_string or type == member_path:
 			option_dict[name] = true
 	for name in local_vars.keys():
 		var data = local_vars.get(name)
 		if not data is Dictionary:
 			continue
-		if not data.has(EditorCodeCompletionSingleton.GDScriptParser0._Keys.TYPE):
+		if not data.has(""):
 			continue
-		var type = data.get(EditorCodeCompletionSingleton.GDScriptParser0._Keys.TYPE)
+		var type = data.get("")
 		if type == enum_class_string or type == member_path:
 			if name.find("%") > -1:
 				name = name.substr(0, name.find("%"))
@@ -772,15 +800,15 @@ func _get_member_path_from_data(processed_input:Dictionary, script:GDScript):
 	
 	#print("HAVE GLOBAL")
 	var class_hint = ""
-	var current_state = get_state()
-	if current_state == State.FUNC_ARGS:
-		var func_call_data = get_func_call_data(true)
-		var full_call_typed = func_call_data.get(FuncCall.FULL_CALL_TYPED, "")
-		class_hint = UString.get_member_access_front(full_call_typed)
-	elif current_state == State.ASSIGNMENT:
-		var assignment_data = get_assignment_at_caret()
-		var left_typed = assignment_data.get(Assignment.LEFT_TYPED, "")
-		class_hint = UString.get_member_access_front(left_typed)
+	#var current_state = get_state()
+	#if current_state == State.FUNC_ARGS:
+		#var func_call_data = get_func_call_data(true)
+		#var full_call_typed = func_call_data.get(FuncCall.FULL_CALL_TYPED, "")
+		#class_hint = UString.get_member_access_front(full_call_typed)
+	#elif current_state == State.ASSIGNMENT:
+		#var assignment_data = get_assignment_at_caret()
+		#var left_typed = assignment_data.get(Assignment.LEFT_TYPED, "")
+		#class_hint = UString.get_member_access_front(left_typed)
 	print(class_hint)
 	var global_member_access_path = ""
 	var global_data = {}
@@ -852,7 +880,7 @@ func _check_inherited_preloads_for_alias(processed_input:Dictionary, script:GDSc
 func _get_preload_alias(access_path:String, enum_class_string:String):
 	var best_preload_alias = ""
 	var best_preload_length = 0
-	var preload_map = get_preload_map() # path is key
+	var preload_map = {}# get_preload_map() # path is key
 	if preload_map.has(enum_class_string):
 		#print("DIRECT PRELOAD")
 		return preload_map.get(enum_class_string)
