@@ -348,6 +348,43 @@ func _get_cached_data_in_section(section, key, data_cache:Dictionary):
 
 
 
+#func _build_global_script_constant_map():
+	#global_script_constant_map.clear()
+	#var global_classes = UClassDetail.get_all_global_class_paths()
+	#for _name in global_classes.keys():
+		#var global_path = global_classes.get(_name)
+		#if global_path.get_extension() == "cs":
+			#continue
+		#var cached = CacheHelper.get_cached_data(global_path, _global_script_constant_map_data_cache)
+		#if cached != null:
+			#for script in cached.keys():
+				#if not global_script_constant_map.has(script):
+					#global_script_constant_map[script] = {}
+				#global_script_constant_map[script].merge(cached[script])
+			#continue
+		#
+		#var global_script = load(global_path)
+		#var class_hint = _name
+		#var temp_cache_dict = {}
+		#var preloads = UClassDetail.script_get_preloads(global_script, true, true)
+		#for p_member_access in preloads.keys():
+			#var script = preloads[p_member_access]
+			#if not global_script_constant_map.has(script):
+				#global_script_constant_map[script] = {}
+			#if not temp_cache_dict.has(script):
+				#temp_cache_dict[script] = {}
+			#
+			#var hint_data = {
+				#"global_script": global_script,
+				#"member_access": p_member_access
+			#}
+			#global_script_constant_map[script][class_hint] = hint_data
+			#temp_cache_dict[script][class_hint] = hint_data
+		#
+		#var global_inh_paths = UClassDetail.script_get_inherited_script_paths(global_script)
+		#CacheHelper.store_data(global_path, temp_cache_dict, _global_script_constant_map_data_cache, global_inh_paths)
+
+
 func _build_global_script_constant_map():
 	global_script_constant_map.clear()
 	var global_classes = UClassDetail.get_all_global_class_paths()
@@ -383,7 +420,6 @@ func _build_global_script_constant_map():
 		
 		var global_inh_paths = UClassDetail.script_get_inherited_script_paths(global_script)
 		CacheHelper.store_data(global_path, temp_cache_dict, _global_script_constant_map_data_cache, global_inh_paths)
-
 
 
 class EditorSet:

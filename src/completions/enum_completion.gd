@@ -44,44 +44,42 @@ func _on_code_completion_requested(script_editor:CodeEdit) -> bool:
 	if caret_context.expression_before_caret.length() > 5:
 		return false
 	if caret_context.expression_state == ExpressionState.ASSIGNMENT or caret_context.expression_state == ExpressionState.COMPARISON:
-		var op_data = caret_context.get_operation_data()
-		print("OP DATA LEFT::", op_data.left_text)
-		print("OP DATA LEFT TYPE::", op_data.left_type)
-		return _process_identifier(op_data.left_type, op_data.left_text)
+		return _operator(caret_context)
 	elif caret_context.is_in_function_call():
-		var func_data = caret_context.get_function_call_data()
-		print("CURRENT ARG RAW::", func_data.func_get_current_arg_declaration())
-		print("CURRENT_ARG::", func_data.func_get_current_arg_type())
-		print("RETURN::", func_data.func_get_return_type())
-		print(func_data.function_data)
-		var current_arg_type = func_data.func_get_current_arg_type()
-		var type_hint = func_data.func_get_current_arg_declaration()
-		return _process_identifier(current_arg_type, type_hint)
+		return _function_call(caret_context)
 	return false
+	#tf_test_al()
+
+
+func _operator(caret_context:CaretContext):
+	var op_data = caret_context.get_operation_data()
+	print("OP DATA LEFT::", op_data.left_text)
+	print("OP DATA LEFT TYPE::", op_data.left_type)
+	return _process_identifier(op_data.left_type, op_data.left_access_object)
 	
 
 
-#func _operator(caret_context:CaretContext):
-	#var op_data = caret_context.get_operation_data()
-	#return _process_identifier(op_data.left_type)
-	#
-#
-#
-#func _function_call(caret_context:CaretContext):
-	#var func_data = caret_context.get_function_call_data()
-	##print("FUNC DATA::",func_data.function_data)
-	#print("CURRENT_ARG::", func_data.get_current_arg_type())
-	#print("RETURN::", func_data.get_return_type())
-	#
-	#var current_arg_type = func_data.get_current_arg_type()
-	#return _process_identifier(current_arg_type)
-	##UClassDetail.script_get_all_enums(null, )
+func _function_call(caret_context:CaretContext):
+	var func_data = caret_context.get_function_call_data()
+	print("CURRENT ARG RAW::", func_data.func_get_current_arg_declaration())
+	print("CURRENT_ARG::", func_data.func_get_current_arg_type())
+	print("RETURN::", func_data.func_get_return_type())
+	var current_arg = func_data.func_get_current_arg()
+	for s in [current_arg.declaration, current_arg.declaration_access, current_arg.type]:
+		print("ACCESS OBJ::ARG::", s)
+	var current_arg_type = func_data.func_get_current_arg_type()
+	#var type_hint = func_data.access_object.get("symbol", "")
+	var access_data = {}
+	access_data["symbol"] = func_data.access_object.get("symbol", "")
+	access_data["arg_declaration"] = func_data.func_get_current_arg_declaration()
+	print(current_arg_type)
+	return _process_identifier(current_arg_type, access_data)
+	#UClassDetail.script_get_all_enums(null, )
 
 
-func _process_identifier(identifier:String, type_hint:String=""):
-	
+func _process_identifier(identifier:String, access_data:Dictionary={}):
 	if identifier.ends_with(ENUM_SUFFIX):
-		return _process_script_enum(identifier, type_hint, true)
+		return _process_script_enum(identifier, access_data, true)
 	
 	return _process_built_in_enum(identifier, true)
 
@@ -131,16 +129,17 @@ func _get_current_script_base_type():
 #region Script Enums
 
 
-func _process_script_enum(enum_path:String, type_hint:String="", force:=false):
+func _process_script_enum(enum_path:String, access_data:Dictionary, force:=false):
 	if not enum_path.ends_with(ENUM_SUFFIX):
 		return false
 	enum_path = enum_path.trim_suffix(ENUM_SUFFIX)
 	var script_data = get_enum_script_data(enum_path)
 	print(script_data)
+	
 	if script_data.is_empty():
 		return false
 	script_data["force"] = force
-	return _add_custom_enum_members(script_data, type_hint)
+	return _add_custom_enum_members(script_data, access_data)
 
 func get_enum_script_data(class_path:String):
 	var path_data = split_path(class_path)
@@ -156,49 +155,93 @@ func get_enum_script_data(class_path:String):
 	
 	return {"enum_script_path": script_path, "enum_access":enum_access, "enum_name":enum_name}
 
-func _add_custom_enum_members(script_data:Dictionary, type_hint:String=""):
-	var enum_script_path = script_data.get("enum_script_path")
+func _add_custom_enum_members(script_data:Dictionary, access_data:Dictionary):
+	var enum_main_script_path = script_data.get("enum_script_path") as String
 	var enum_access = script_data.get("enum_access")
 	var enum_name = script_data.get("enum_name")
 	var force = script_data.get("force", false)
-	var enum_main_script = load(enum_script_path) as GDScript
+	var enum_main_script = load(enum_main_script_path) as GDScript
+	
+	var current_script = get_current_script()
+	var current_script_path = current_script.resource_path
+	
+	
 	var enum_parent_script = enum_main_script
 	if enum_access != "":
 		enum_parent_script = get_script_member_info_by_path(enum_main_script, enum_access)
 	
-	var enum_members = get_script_member_info_by_path(enum_parent_script, enum_name)
+	var path_to_enum = UString.dot_join(enum_access, enum_name)
+	
+	var enum_in_current_script = enum_main_script_path.begins_with(current_script_path)
+	var enum_members
+	if enum_in_current_script:
+		var parser = get_gdscript_parser()
+		var class_obj = parser.get_class_object(enum_access) as GDScriptParser.ParserClass
+		enum_members = class_obj.get_enum_members(enum_name)
+	else:
+		enum_members = get_script_member_info_by_path(enum_parent_script, enum_name)
+	print("ACCESS OBJ::ENUM_MEMBERS::", enum_members)
 	if enum_members == null:
 		return false
-	var current_script = get_current_script()
-	var path_to_enum = UClassDetail.script_get_member_by_value(current_script, enum_main_script)
-	if path_to_enum != null: # enum parent script is nested in current script
-		path_to_enum = UString.dot_join(path_to_enum, enum_name)
-	elif enum_main_script.get_global_name() != "": # enum script in global
-		path_to_enum = UString.dot_join(enum_main_script.get_global_name(), UString.dot_join(enum_access, enum_name))
-	else:
-		
-		#^ TO REWORK - Should be easier, maybe just provide a hint also the actual mapping could be reworked too
-		var global_locations = get_global_script_location(enum_main_script)
-		print("TYPE HINT::", type_hint,"::GLOBAL ",global_locations)
-		if global_locations != null:
-			if type_hint != "":
-				var front = UString.get_member_access_front(type_hint)
-				if global_locations.has(front):
-					var location_data = global_locations[front]
-					var path = location_data.get("member_access")
-					path = UString.dot_join(front, path)
-					path_to_enum = UString.dot_join(path, enum_name)
+	
+	
+	
+	
+	print("ACCESS OBJ::ENUM::", access_data)
+	var access_symbol = access_data.get("symbol")
+	if access_symbol == "":
+		access_symbol = access_data.get("arg_declaration")
+		access_symbol = UString.get_member_access_front(access_symbol)
+	print("ACCESS OBJ::ENUM::SYMBOL::", access_symbol)
+	if enum_in_current_script:
+		pass
+	elif access_symbol != "":
+		var global_path = UClassDetail.get_global_class_path(access_symbol)
+		if global_path != "":
+			if enum_main_script_path.begins_with(global_path):
+				path_to_enum = UString.dot_join(access_symbol, path_to_enum)
 			else:
-				var location_data = global_locations[global_locations.keys()[0]]
-				var path = location_data.get("member_access")
-				path_to_enum = UString.dot_join(path, enum_name)
-				pass
-		#^ TO REWORK
+				var global_script = load(global_path)
+				var access = UClassDetail.script_get_member_by_value(global_script, enum_parent_script, true)
+				path_to_enum = UString.dot_joinv([access_symbol, access, enum_name])
+		else:
+			var access_script = UClassDetail.get_member_info_by_path(current_script, access_symbol)
+			var access = UClassDetail.script_get_member_by_value(access_script, enum_parent_script, true)
+			path_to_enum = UString.dot_joinv([access_symbol, access, enum_name])
+			print("ACCESS OBJ::", access_symbol)
+	
+	
+	print("MEMBERS::", enum_members)
+	
 	print("PATH ", path_to_enum)
 	
-	#var tff = tf.new("", )
+	
 	return _add_enum_code_completions(path_to_enum, enum_members.keys(), [], force)
 
+
+func test_vars():
+	
+	#tf_test_al()
+	
+	#tf_test_al()
+	#ScriptEditorRef.subscribe()
+	
+	#var s:= ScriptEditorRef.new()
+	#s.subscribe()
+	
+	#var tff = tf.new("", )
+	pass
+
+
+
+
+enum MyNum{
+	DSHJKHDSJ,
+	DHJSDHJS
+}
+
+func test_num(m:MyNum):
+	pass
 
 const TF = P.TimeFunction
 const G = ALibRuntime.Utils
@@ -307,9 +350,10 @@ func test_base(some:=ConnectFlags.CONNECT_ONE_SHOT):
 func tf_test(tf:ALibRuntime.Utils.UProfile.TimeFunction.TimeScale):
 	pass
 
+func tf_test_al(s:Pro.TimeFunction.TimeScale):
+	pass
 
-
-
+const Pro = ALibRuntime.Utils.UProfile
 
 
 
