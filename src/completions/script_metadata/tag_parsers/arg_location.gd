@@ -36,87 +36,132 @@ func _get_tags_in_line(tag_string:String):
 		data[arg_name] = location
 	return data
 #! arg_location script_editor:Nest
-func code_completion_requested(script_editor:CodeEdit) -> bool:
-	var current_script = script_metadata.get_current_script()
-	
+func code_completion_requested(_script_editor:CodeEdit) -> bool:
 	var caret_context = script_metadata.get_caret_context()
 	if caret_context.token_state == CaretContext.TokenState.COMMENT:
-		print("IN COMMENT")
-		if not _is_caret_in_tag_type_declaration(caret_context):
-			return false
-		print("IN COMMENT TYPE")
-		var word_before_cursor = caret_context.expression_before_caret
-		
-		var current_class = caret_context.current_class
-		
-		if current_class != "":
-			current_script = UClassDetail.get_member_info_by_path(current_script, current_class)
-		
-		var script_to_list = current_script
-		if word_before_cursor == "" or not word_before_cursor.contains("."):
-			pass
-		else:
-			var trimmed_back = UString.trim_member_access_back(word_before_cursor)
-			script_to_list = UClassDetail.get_member_info_by_path(current_script, trimmed_back)
-			if script_to_list is not GDScript:
-				return false
-		var preloads = UClassDetail.script_get_preloads(script_to_list, false, true)
-		for path in preloads.keys():
-			var dict = script_metadata.get_code_complete_dict(CodeEdit.CodeCompletionKind.KIND_CONSTANT, path, path)
-			script_metadata.add_completion_option(script_editor, dict)
-		script_metadata.update_completion_options()
-		return true
-		#test_method()
-	
+		return _comment_complete(caret_context)
 	elif caret_context.is_in_function_call():
-		var function_call_data = caret_context.get_function_call_data()
-		var data = UClassDetail.get_member_info_by_path(current_script, function_call_data.full_call)
-		
-		if data != null:
-			var metadata = get_arg_location_metadata()
-			print("META ", metadata)
-			if metadata == null:
-				return false
-			var method_data = metadata.get(function_call_data.full_call)
-			if not method_data:
-				return false
-			var current_arg_idx = function_call_data.current_arg_index
-			var args = data.get("args")
-			var arg_data = args[current_arg_idx]
-			if not method_data.has(arg_data.name):
-				return false
-			
-			var target = method_data[arg_data.name]
-			var all_constants = {}
-			var target_script = UClassDetail.get_member_info_by_path(current_script, target)
-			var constants = UClassDetail.script_get_all_constants(target_script, UClassDetail.IncludeInheritance.NONE)
-			all_constants[target] = constants
-			var inner_scripts = UClassDetail.script_get_preloads(target_script, true, true)
-			for script_path in inner_scripts.keys():
-				var script = inner_scripts[script_path]
-				var inner_constants = UClassDetail.script_get_all_constants(script, UClassDetail.IncludeInheritance.NONE)
-				
-				all_constants[target + "." + script_path] = inner_constants
-			
-			for access_path in all_constants.keys():
-				var const_dict = all_constants[access_path]
-				for const_name in const_dict.keys():
-					var val = const_dict[const_name]
-					if not (val is String or val is StringName):
-						continue
-					
-					var full_path = const_name
-					if access_path != "":
-						full_path = access_path + "." + const_name
-					#print(full_path)
-					var cc_dict = script_metadata.get_code_complete_dict(CodeEdit.CodeCompletionKind.KIND_CONSTANT, full_path, full_path, "String")
-					script_metadata.add_completion_option(script_editor, cc_dict)
-			
-			script_metadata.update_completion_options(function_call_data.get_text_current_arg() == "")
-			return true
+		return _function_call(caret_context)
 	
 	return false
 
+func _comment_complete(caret_context:CaretContext):
+	var script_editor = script_metadata.get_code_edit()
+	var current_script = script_metadata.get_current_script()
+	
+	if not _is_caret_in_tag_type_declaration(caret_context):
+		return false
+	print("IN COMMENT TYPE")
+	var word_before_cursor = caret_context.expression_before_caret
+	
+	var current_class = caret_context.current_class # could use class obj here
+	if current_class != "":
+		current_script = UClassDetail.get_member_info_by_path(current_script, current_class)
+	
+	var script_to_list = current_script
+	if word_before_cursor == "" or not word_before_cursor.contains("."):
+		pass
+	else:
+		var trimmed_back = UString.trim_member_access_back(word_before_cursor)
+		script_to_list = UClassDetail.get_member_info_by_path(current_script, trimmed_back)
+		if script_to_list is not GDScript:
+			return false
+	
+	var preloads = UClassDetail.script_get_preloads(script_to_list, false, true)
+	for path in preloads.keys():
+		var dict = script_metadata.get_code_complete_dict(CodeEdit.CodeCompletionKind.KIND_CONSTANT, path, path)
+		script_metadata.add_completion_option(script_editor, dict)
+	script_metadata.update_completion_options()
+	return true
+
+
+func _function_call(caret_context:CaretContext):
+	var script_editor = script_metadata.get_code_edit()
+	var current_script = script_metadata.get_current_script()
+	
+	var function_call_data = caret_context.get_function_call_data()
+	print("ARG LOC:: FUNC OBJ::",function_call_data.function_object)
+	var function_object = function_call_data.function_object
+	if not function_object.begins_with("res://"):
+		return false
+	var script_data = UString.get_script_path_and_suffix(function_object)
+	var function_script_path = script_data[0]
+	var function_script = load(function_script_path)
+	var class_path = script_data[1]
+	var metadata = get_arg_location_metadata(function_script_path)
+	if metadata == null:
+		return false
+	print("META ", metadata)
+	print(function_call_data.function_name)
+	var class_method_name = UString.dot_join(class_path, function_call_data.function_name)
+	
+	var method_data = metadata.get(class_method_name)
+	print("METH DATA::",method_data, "::", class_method_name)
+	if not method_data:
+		return false
+	
+	var current_arg = function_call_data.func_get_current_arg()
+	if not method_data.has(current_arg.name):
+		return false
+	
+	var target_class = UString.dot_join(class_path, method_data[current_arg.name])
+	
+	var all_constants = {}
+	var target_script = function_script
+	if class_path != "":
+		target_script = UClassDetail.get_member_info_by_path(target_script, target_class)
+	if target_script == null:
+		return false
+	var constants = UClassDetail.script_get_all_constants(target_script, UClassDetail.IncludeInheritance.NONE)
+	all_constants[target_class] = constants
+	var inner_scripts = UClassDetail.script_get_preloads(target_script, true, true)
+	for script_path in inner_scripts.keys():
+		var script = inner_scripts[script_path]
+		var inner_constants = UClassDetail.script_get_all_constants(script, UClassDetail.IncludeInheritance.NONE)
+		
+		all_constants[UString.dot_join(target_class, script_path)] = inner_constants
+	
+	var main_script_access_path = ""
+	if function_script_path != current_script.resource_path:
+		var access_script = function_script
+		if access_script.get_global_name() == "":
+			var access_obj = function_call_data.access_object
+			var access_obj_type = access_obj.type
+			main_script_access_path = access_obj.declaration_symbol
+			var access_script_data = UString.get_script_path_and_suffix(access_obj_type)
+			access_script = load(access_script_data[0])
+		
+		
+		
+		if access_script.get_global_name() != "":
+			main_script_access_path = access_script.get_global_name()
+		
+		if access_script != function_script:
+			var access = UClassDetail.script_get_member_by_value(access_script, function_script, true)
+			if access != null:
+				main_script_access_path = UString.dot_join(main_script_access_path, access)
+	
+	print(main_script_access_path)
+	
+	for access_path in all_constants.keys():
+		var const_dict = all_constants[access_path]
+		access_path = UString.dot_join(main_script_access_path, access_path)
+		for const_name in const_dict.keys():
+			var val = const_dict[const_name]
+			if not (val is String or val is StringName):
+				continue
+			
+			var full_path = const_name
+			
+			if access_path != "":
+				full_path = access_path + "." + const_name
+			#print(full_path)
+			var cc_dict = script_metadata.get_code_complete_dict(CodeEdit.CodeCompletionKind.KIND_CONSTANT, full_path, full_path, "String")
+			
+			script_metadata.add_completion_option(script_editor, cc_dict)
+	
+	script_metadata.update_completion_options(function_call_data.get_text_current_arg() == "")
+	return true
 
 
 
@@ -220,7 +265,6 @@ func _is_caret_in_tag_type_declaration(caret_context:CaretContext):
 	if not caret_context.current_line_text.strip_edges().begins_with("#! " + TAG):
 		return false
 	var left = caret_context.current_line_text.left(caret_context.caret_column)
-	print("LEFT::", left,"::EXPR::", caret_context.expression_before_caret, "::STRIPPED::", left.trim_suffix(caret_context.expression_before_caret).strip_edges())
-	if left.trim_suffix(caret_context.expression_before_caret).strip_edges().ends_with(":"):
+	if left.trim_suffix(caret_context.word_before_caret).strip_edges().ends_with(":"):
 		return true
 	return false

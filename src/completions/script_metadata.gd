@@ -56,21 +56,18 @@ func get_script_metadata(path:String):
 		#if cached_data != null:
 			#return cached_data
 	
-	var file_lines:PackedStringArray
+	var parser:GDScriptParser = get_gdscript_parser()
 	if is_current_script:
-		file_lines = get_code_edit().text.split("\n", false)
+		parser = get_gdscript_parser()
 	else:
-		var file_as_text = singleton.get_script_as_text(path)
-		if file_as_text == "":
-			return {}
-		file_lines = file_as_text.split("\n", false)
+		parser = parser.new_parser(path)
 	
-	var metadata = parse_script_metadata(file_lines)
+	var metadata = parse_script_metadata(parser)
 	CacheHelper.store_data(path, metadata, _cache, [path])
 	return metadata
 
 
-func parse_script_metadata(source_code_lines: PackedStringArray) -> Dictionary:
+func parse_script_metadata(gdscript_parser: GDScriptParser) -> Dictionary:
 	var metadata_cache = {}
 	
 	# Captures "arg_location" as 'tag' and "line:Keys context:SubSpace" as 'args'
@@ -84,11 +81,15 @@ func parse_script_metadata(source_code_lines: PackedStringArray) -> Dictionary:
 		member_regex = RegEx.new()
 		member_regex.compile("^\\s*(?:@[a-zA-Z0-9_]+(?:\\([^)]*\\))?\\s*)*(?:static\\s+)?(?<type>func|var|const|signal|class)\\s+(?<name>\\w+)")
 	
+	
+	var code_edit_parser = gdscript_parser.code_edit_parser
+	
 	# pending_tags format: {"tag_name": "args string"}
 	var pending_tags = {}
 	#var source_code_lines = source_code.split("\n")
 	
-	for line in source_code_lines:
+	for i in range(code_edit_parser.code_edit.get_line_count()):
+		var line = code_edit_parser.get_line(i)
 		# 1. Check for Meta Tags
 		var meta_match = meta_regex.search(line)
 		if meta_match:
@@ -106,7 +107,9 @@ func parse_script_metadata(source_code_lines: PackedStringArray) -> Dictionary:
 		var member_match = member_regex.search(line)
 		if member_match:
 			if not pending_tags.is_empty():
-				var member_name = member_match.get_string("name")
+				var class_access_path = gdscript_parser.get_class_at_line(i)
+				var member_name = UString.dot_join(class_access_path, member_match.get_string("name"))
+				
 				
 				# NOTE: You mentioned you have your own inner-class handling logic.
 				# You would apply your "member_name" path logic here. 

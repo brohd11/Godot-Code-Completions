@@ -14,6 +14,11 @@ var data_cache = {}
 
 var completion_cache = {}
 
+var access_object:CaretContext.AccessObject
+var function_access_object:CaretContext.AccessObject
+var function_object:String
+
+
 func _singleton_ready():
 	_init_set_settings()
 
@@ -38,6 +43,9 @@ func _set_settings():
 func _on_code_completion_requested(script_editor:CodeEdit) -> bool:
 	if not enum_enable:
 		return false
+	access_object = null
+	function_access_object = null
+	function_object = ""
 	var caret_context = get_caret_context()
 	if caret_context.token_state != TokenState.NONE:
 		return false
@@ -45,6 +53,8 @@ func _on_code_completion_requested(script_editor:CodeEdit) -> bool:
 		return false
 	if caret_context.expression_state == ExpressionState.ASSIGNMENT or caret_context.expression_state == ExpressionState.COMPARISON:
 		return _operator(caret_context)
+	elif caret_context.scope_state == ScopeState.MATCH_BRANCH:
+		return _match_branch(caret_context)
 	elif caret_context.is_in_function_call():
 		return _function_call(caret_context)
 	return false
@@ -53,33 +63,49 @@ func _on_code_completion_requested(script_editor:CodeEdit) -> bool:
 
 func _operator(caret_context:CaretContext):
 	var op_data = caret_context.get_operation_data()
-	print("OP DATA LEFT::", op_data.left_text)
-	print("OP DATA LEFT TYPE::", op_data.left_type)
-	return _process_identifier(op_data.left_type, op_data.left_access_object)
-	
+	access_object = op_data.left_access_object
+	return _process_identifier(op_data.left_type)
+
+func _match_branch(caret_context:CaretContext):
+	var match_type = caret_context.get_match_block_data()
+	if not match_type.is_valid:
+		return false
+	if caret_context.get_line_indent() != match_type.indent + caret_context.get_indent_size():
+		return false
+	if  caret_context.is_in_multiline_expression() or caret_context.code_context_find(":") != -1:
+		return false
+	access_object = match_type.access_object
+	return _process_identifier(match_type.type)
 
 
 func _function_call(caret_context:CaretContext):
 	var func_data = caret_context.get_function_call_data()
-	print("CURRENT ARG RAW::", func_data.func_get_current_arg_declaration())
-	print("CURRENT_ARG::", func_data.func_get_current_arg_type())
-	print("RETURN::", func_data.func_get_return_type())
 	var current_arg = func_data.func_get_current_arg()
-	for s in [current_arg.declaration, current_arg.declaration_access, current_arg.type]:
-		print("ACCESS OBJ::ARG::", s)
-	var current_arg_type = func_data.func_get_current_arg_type()
-	#var type_hint = func_data.access_object.get("symbol", "")
-	var access_data = {}
-	access_data["symbol"] = func_data.access_object.get("symbol", "")
-	access_data["arg_declaration"] = func_data.func_get_current_arg_declaration()
-	print(current_arg_type)
-	return _process_identifier(current_arg_type, access_data)
-	#UClassDetail.script_get_all_enums(null, )
+	
+	access_object = current_arg.access_object
+	function_access_object = func_data.access_object
+	function_object = func_data.function_object
+	
+	print("FUNC:::")
+	print(func_data.function_object)
+	print("ACCESS:::")
+	print(function_access_object.declaration_symbol)
+	print(function_access_object.access_symbol)
+	print(function_access_object.type)
+	
+	print("ARG:::")
+	print(access_object.declaration_symbol)
+	print(access_object.access_symbol)
+	print(access_object.type)
+	return _process_identifier(current_arg.type)
 
 
-func _process_identifier(identifier:String, access_data:Dictionary={}):
+func _process_identifier(identifier:String):
+	print("PROCESS ENUM:::", identifier)
 	if identifier.ends_with(ENUM_SUFFIX):
-		return _process_script_enum(identifier, access_data, true)
+		return _process_script_enum(identifier, true)
+	elif identifier.begins_with("res://"):
+		return false
 	
 	return _process_built_in_enum(identifier, true)
 
@@ -96,15 +122,16 @@ func _process_built_in_enum(identifier:String, force:=false):
 		if ClassDB.class_has_enum(base_type, part):
 			enum_name = part
 			break
-		elif ClassDB.class_exists(part):
+		elif ClassDB.class_exists(part) and part != base_type:
 			base_type = part
 			access_path = UString.dot_join(access_path, part)
 	
+	prints("BUILT IN ENUM::", identifier, "->", base_type, enum_name)
 	if not ClassDB.class_has_enum(base_type, enum_name):
 		return false
 	var enum_members = ClassDB.class_get_enum_constants(base_type, enum_name)
 	
-	
+	#test_base()
 	prints(base_type, enum_name, enum_members)
 	
 	return _add_enum_code_completions(access_path, enum_members, [], force)
@@ -129,7 +156,7 @@ func _get_current_script_base_type():
 #region Script Enums
 
 
-func _process_script_enum(enum_path:String, access_data:Dictionary, force:=false):
+func _process_script_enum(enum_path:String, force:=false):
 	if not enum_path.ends_with(ENUM_SUFFIX):
 		return false
 	enum_path = enum_path.trim_suffix(ENUM_SUFFIX)
@@ -139,7 +166,7 @@ func _process_script_enum(enum_path:String, access_data:Dictionary, force:=false
 	if script_data.is_empty():
 		return false
 	script_data["force"] = force
-	return _add_custom_enum_members(script_data, access_data)
+	return _add_custom_enum_members(script_data)
 
 func get_enum_script_data(class_path:String):
 	var path_data = split_path(class_path)
@@ -153,18 +180,25 @@ func get_enum_script_data(class_path:String):
 		enum_name = UString.get_member_access_back(suffix)
 		enum_access = UString.trim_member_access_back(suffix)
 	
-	return {"enum_script_path": script_path, "enum_access":enum_access, "enum_name":enum_name}
+	return {"enum_full_path": class_path, "enum_script_path": script_path, "enum_access":enum_access, "enum_name":enum_name}
 
-func _add_custom_enum_members(script_data:Dictionary, access_data:Dictionary):
+
+
+
+func _add_custom_enum_members(script_data:Dictionary):
+	var enum_full_path = script_data.get("enum_full_path")
 	var enum_main_script_path = script_data.get("enum_script_path") as String
 	var enum_access = script_data.get("enum_access")
 	var enum_name = script_data.get("enum_name")
+	
 	var force = script_data.get("force", false)
+	
 	var enum_main_script = load(enum_main_script_path) as GDScript
+	var enum_global_name = enum_main_script.get_global_name()
+	var enum_is_global = enum_global_name != ""
 	
 	var current_script = get_current_script()
 	var current_script_path = current_script.resource_path
-	
 	
 	var enum_parent_script = enum_main_script
 	if enum_access != "":
@@ -175,48 +209,194 @@ func _add_custom_enum_members(script_data:Dictionary, access_data:Dictionary):
 	var enum_in_current_script = enum_main_script_path.begins_with(current_script_path)
 	var enum_members
 	if enum_in_current_script:
+		print("ENUM IN CURRENT SCRIPT")
 		var parser = get_gdscript_parser()
 		var class_obj = parser.get_class_object(enum_access) as GDScriptParser.ParserClass
 		enum_members = class_obj.get_enum_members(enum_name)
 	else:
 		enum_members = get_script_member_info_by_path(enum_parent_script, enum_name)
-	print("ACCESS OBJ::ENUM_MEMBERS::", enum_members)
+	#print("ACCESS OBJ::ENUM_MEMBERS::", enum_members)
 	if enum_members == null:
 		return false
 	
+	var access_symbol = access_object.access_symbol
+	var declaration_symbol = access_object.declaration_symbol
+	var access_obj_type = access_object.type
+	
+	var caret_context = get_caret_context()
+	var class_obj = caret_context.get_current_class_object()
+	
+	#caret_context.expression_state == 
+	print(access_symbol)
+	print(declaration_symbol)
+	print(access_obj_type)
+	
+	#var n := NewScript3.new()
+	#n.tf_test_simple(NewScript3.T.TimeScale.USEC, NewScript3.TS.MSEC)
+	##n.test_nest(NewScript3.NestedClass.MyNum.TEST)
+	##n.test_nest_re(NewScript3.NestedClass.MyNum.TEST)
+	#var nest = n.get_nest()
+	#nest.tf_test2(NewScript3.T.TimeScale.USEC)
+	##nest.test(NewScript3.NestedClass.MyNum.TEST)
+	#nest.test_rename(Num.TEST)
+	##nest.tf_test2(TS.MSEC)
+	#
+	#if n.tf_var == TS.MSEC:
+		#pass
+	#nest.test(NewScript3.NestedClass.MyNum.TEST)
+	#nest.test_rename(NewScript3.NestedClass.Num.TEST)
+	
+	#if nest.num_var == NewScript3.NestedClass.MyNum.TEST:
 	
 	
+	var is_function_call = function_access_object != null
 	
-	print("ACCESS OBJ::ENUM::", access_data)
-	var access_symbol = access_data.get("symbol")
-	if access_symbol == "":
-		access_symbol = access_data.get("arg_declaration")
-		access_symbol = UString.get_member_access_front(access_symbol)
-	print("ACCESS OBJ::ENUM::SYMBOL::", access_symbol)
+	var path_set:= false
+	
+	
 	if enum_in_current_script:
-		pass
-	elif access_symbol != "":
-		var global_path = UClassDetail.get_global_class_path(access_symbol)
-		if global_path != "":
-			if enum_main_script_path.begins_with(global_path):
-				path_to_enum = UString.dot_join(access_symbol, path_to_enum)
+		path_set = true
+		pass # the enum is declared in the current script, can just use enum_access + enum_name
+	elif enum_is_global:
+		path_to_enum = UString.dot_joinv([enum_global_name, enum_access, enum_name])
+		path_set = true
+	elif access_obj_type.ends_with(ENUM_SUFFIX): # not in current_script, but directly accessed in parent script
+		print("ACCESS OBJECT IS ENUM TYPE::", access_obj_type, "::", enum_full_path)
+		var stripped_obj_type = access_obj_type.trim_suffix(ENUM_SUFFIX)
+		if stripped_obj_type == enum_full_path:
+			var access_script_data = UString.get_script_path_and_suffix(stripped_obj_type.trim_suffix(enum_name).trim_suffix("."))
+			var access_script_path = access_script_data[0]
+			var inner_access = access_script_data[1]
+			print("ACCESS OBJECT IS CURRENT ENUM::INNER ACCESS::", inner_access)
+			if is_function_call: # function prepends the function declaration symbol to ensure access
+				var access_script = load(access_script_path) as GDScript
+				if access_script.get_global_name() != "":
+					path_to_enum = UString.dot_joinv([access_script.get_global_name(), inner_access, declaration_symbol])
+					path_set = true
+				else:
+					path_to_enum = UString.dot_joinv([function_access_object.declaration_symbol, inner_access, declaration_symbol])
+					path_set = true
 			else:
-				var global_script = load(global_path)
-				var access = UClassDetail.script_get_member_by_value(global_script, enum_parent_script, true)
-				path_to_enum = UString.dot_joinv([access_symbol, access, enum_name])
+				path_to_enum = UString.dot_joinv([declaration_symbol, inner_access, enum_name])
+				path_to_enum = UString.dot_joinv([declaration_symbol])
+				path_set = true
 		else:
-			var access_script = UClassDetail.get_member_info_by_path(current_script, access_symbol)
+			print("ACCESS OBJECT IS NOT CURRENT ENUM")
+			#access_obj_type = function_access_object.type
+			#declaration_symbol = function_access_object.declaration_symbol
+		
+	
+	if not path_set and access_obj_type != "":
+		var access_script_data = UString.get_script_path_and_suffix(access_obj_type)
+		var access_script_path = access_script_data[0]
+		var access_class_path = access_script_data[1] # don't need for a search by val
+		enum_access = enum_access.trim_prefix(access_class_path).trim_prefix(".")
+		print("EXTERNAL ACCESS OBJ", access_script_data)
+		var access_script = load(access_script_path)
+		
+		
+		var path_handled = false
+		if access_script != enum_main_script:
 			var access = UClassDetail.script_get_member_by_value(access_script, enum_parent_script, true)
-			path_to_enum = UString.dot_joinv([access_symbol, access, enum_name])
-			print("ACCESS OBJ::", access_symbol)
+			print("EXTERNAL ACCESS::", access)
+			if access != null:
+				path_to_enum = UString.dot_joinv([declaration_symbol, access, enum_name])
+				path_handled = true
+		
+		else: # access script is enum main script
+			if is_function_call: # function prepends the function declaration symbol to ensure access
+				if access_script.get_global_name() != "":
+					path_to_enum = UString.dot_joinv([access_script.get_global_name(), declaration_symbol, enum_access, enum_name])
+				else:
+					path_to_enum = UString.dot_joinv([function_access_object.declaration_symbol, declaration_symbol, enum_access, enum_name])
+				#path_to_enum = UString.dot_joinv([function_access_object.declaration_symbol, declaration_symbol, enum_name])
+			else:
+				path_to_enum = UString.dot_joinv([declaration_symbol, enum_access, enum_name])
+				#path_to_enum = UString.dot_joinv([declaration_symbol, enum_name])
+			path_handled = true
+		
+		if not path_handled:
+			print("ENUM UNHANDLED CASE::", declaration_symbol, "::", enum_main_script_path)
+			return false
+	
+	
+	
+	
+	
+	
+	
+	
+	
+	
+	
+	
+	
+	#if enum_in_current_script:
+		#pass # the enum is declared in the current script, can just use enum_access + enum_name
+	#elif access_obj_type.ends_with(ENUM_SUFFIX): # not in current_script, but directly accessed in parent script
+		#print("ACCESS OBJECT IS ENUM TYPE::", access_obj_type, "::", enum_full_path)
+		#var stripped_obj_type = access_obj_type.trim_suffix(ENUM_SUFFIX)
+		#if stripped_obj_type == enum_full_path:
+			#var access_script_data = UString.get_script_path_and_suffix(stripped_obj_type.trim_suffix(enum_name).trim_suffix("."))
+			#var access_script_path = access_script_data[0]
+			#var inner_access = access_script_data[1]
+			#print("ACCESS OBJECT IS CURRENT ENUM::INNER ACCESS::", inner_access)
+			#if is_function_call: # function prepends the function declaration symbol to ensure access
+				#path_to_enum = UString.dot_joinv([function_access_object.declaration_symbol, inner_access, declaration_symbol])
+			#else:
+				#path_to_enum = UString.dot_joinv([declaration_symbol, inner_access, enum_name])
+				#path_to_enum = UString.dot_joinv([declaration_symbol])
+		#else:
+			#print("ACCESS OBJECT IS NOT CURRENT ENUM")
+			##access_obj_type = function_access_object.type
+			##declaration_symbol = function_access_object.declaration_symbol
+		#
+	#else:
+		#
+		#var access_script_data = UString.get_script_path_and_suffix(access_obj_type)
+		#var access_script_path = access_script_data[0]
+		#var access_class_path = access_script_data[1] # don't need for a search by val
+		#enum_access = enum_access.trim_prefix(access_class_path).trim_prefix(".")
+		#print("EXTERNAL ACCESS OBJ", access_script_data)
+		#var access_script = load(access_script_path)
+		#
+		#var path_handled = false
+		#if access_script != enum_main_script:
+			#var access = UClassDetail.script_get_member_by_value(access_script, enum_parent_script, true)
+			#print("EXTERNAL ACCESS::", access)
+			#if access != null:
+				#path_to_enum = UString.dot_joinv([declaration_symbol, access, enum_name])
+				#path_handled = true
+		#
+		#else: # access script is enum main script
+			#if is_function_call: # function prepends the function declaration symbol to ensure access
+				#path_to_enum = UString.dot_joinv([function_access_object.declaration_symbol, declaration_symbol, enum_access, enum_name])
+				##path_to_enum = UString.dot_joinv([function_access_object.declaration_symbol, declaration_symbol, enum_name])
+			#else:
+				#path_to_enum = UString.dot_joinv([declaration_symbol, enum_access, enum_name])
+				##path_to_enum = UString.dot_joinv([declaration_symbol, enum_name])
+			#path_handled = true
+		#
+		#if not path_handled:
+			#print("ENUM UNHANDLED CASE::", declaration_symbol, "::", enum_main_script_path)
+			#return false
 	
 	
 	print("MEMBERS::", enum_members)
 	
 	print("PATH ", path_to_enum)
 	
+	var alias = class_obj.has_preload(enum_full_path + ENUM_SUFFIX)
+	if alias == null:
+		alias = class_obj.has_preload(enum_main_script_path)
+		if alias != null:
+			alias = UString.dot_joinv([alias, enum_access, enum_name])
+	print("ALIAS::", alias)
 	
-	return _add_enum_code_completions(path_to_enum, enum_members.keys(), [], force)
+	
+	return _add_enum_code_completions(path_to_enum, enum_members.keys(), [], force, alias)
+
+
 
 
 func test_vars():
@@ -229,11 +409,17 @@ func test_vars():
 	#var s:= ScriptEditorRef.new()
 	#s.subscribe()
 	
-	#var tff = tf.new("", )
+	var ts:TS = TS.USEC
+	#ts ==
+	
+	var t:=TF.TimeScale.MSEC
+	#t == 
+	
+	var tff = tf.new("", )
 	pass
 
 
-
+const Num = NewScript3.NestedClass.Num
 
 enum MyNum{
 	DSHJKHDSJ,
@@ -241,68 +427,42 @@ enum MyNum{
 }
 
 func test_num(m:MyNum):
+	var n:=NewScript3.new()
+	n.tf_test(ALibRuntime.Utils.UProfile.TimeFunction.TimeScale.USEC)
+	n.tf_test_simple(NewScript3.T.TimeScale.USEC, NewScript3.TS.USEC)
+	
+	var g:= G.UProfile.TimeFunction.new("",)
+	
 	pass
 
+const TS = TF.TimeScale
 const TF = P.TimeFunction
 const G = ALibRuntime.Utils
 const P = G.UProfile
-var tf:= TF
+
+var tf:= P.TimeFunction
 
 var a:Node.AutoTranslateMode
 var t:ConnectFlags
+
+class Nested:
+	enum Gumption {
+		FUNK
+	}
+	enum Nother {
+		TEST
+	}
+	static func test(g:Gumption, n:Nother):
+		pass
+	
+	static func nother(s:TF.TimeScale):
+		pass
 
 #endregion
 
 
 
-#func _get_custom_alias(enum_data, enum_script, member_path, force_update:=false):
-	#
-	#if enum_data == null:
-		#return false
-	#if not (enum_data is Dictionary or enum_data is PackedStringArray):
-		#return false
-	#
-	#var alias
-	#if enum_script != null:
-		#var deep = true #^ this is set to true to allow searching inner classes, could cause issues with preloads
-		#var enum_access_path = UClassDetail.script_get_member_by_value(enum_script, enum_data, deep, ["const"])
-		#if enum_access_path == null: # should be impossible...
-			##print("COULD NOT GET ENUM ACCESS, SHOULD NOT HAPPEN: ", member_path)
-			##print(enum_script.resource_path)
-			#return false
-		##process_input["enum_access_path"] = enum_access_path
-		#
-		#var current_script = get_current_script()
-		#member_path = _get_member_path_from_data(process_input, current_script)
-		##print("ACCESS ", enum_access_path, " MEMBER ", member_path)
-		#alias = _check_inherited_preloads_for_alias(process_input, current_script)
-		#if alias != null:
-			#if show_alias_only:
-				#member_path = alias
-				#alias = null
-			#else:
-				#if alias == member_path:
-					#alias = null
-				#if member_path == null:
-					#member_path = alias
-					#alias = null
-		#
-	#else: # set to null for built in classes
-		#member_path = DataAccessSearch.check_for_godot_class_inheritance(member_path)
-	#
-	#if member_path == null and alias == null:
-		#return false
-	#
-	#var other_options = []
-	##if process_input.has("enum_class"):
-		##process_input.member_path = member_path
-		##other_options = _get_enum_vars(process_input)
-	#
-	#if enum_data is Dictionary:
-		#enum_data = enum_data.keys()
-	#if enum_data.is_empty():
-		#return false
-	#return _add_code_completions(member_path, enum_data, other_options, force_update, alias)
+
 
 ## Access path is a path of classes ie. SomeClass.MyEnum, to access the enum member.
 ## Enum Data is an array of enum member names.
@@ -336,389 +496,36 @@ func _add_enum_code_completions(access_path:String, enum_members:Array, other_op
 	
 	return true
 
-
+const Pro = ALibRuntime.Utils.UProfile
 
 func test(some:=Node.AutoTranslateMode.AUTO_TRANSLATE_MODE_DISABLED):
-	
 	pass
 
 func test_base(some:=ConnectFlags.CONNECT_ONE_SHOT):
 	pass
 
 
-
 func tf_test(tf:ALibRuntime.Utils.UProfile.TimeFunction.TimeScale):
 	pass
 
 func tf_test_al(s:Pro.TimeFunction.TimeScale):
-	pass
-
-const Pro = ALibRuntime.Utils.UProfile
-
-
-
-#func _get_enum_members(class_path:String):
-	#if class_path.ends_with(".gd"):
-		#return
-	#var path_data = split_path(class_path)
-	#if path_data.is_empty():
-		#return
-	#var script_path = path_data[0]
-	#var suffix = path_data[1]
-	#var script = load(script_path)
-	#var data = get_script_member_info_by_path(script, suffix)
-	#if data is Dictionary:
-		#return data
-	#return
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-func _var_assign() -> bool:
-	#var assignment_data = get_assignment_at_caret()
-	var assignment_data = {}
-	if assignment_data == null:
-		return false
-	var left = assignment_data.get("")
-	var operator = assignment_data.get("")
-	var right = assignment_data.get("")
-	#if right != "" and get_word_before_caret() != "":
-		#return false #^ remove so you can type what you want
-	
-	if left.begins_with("var"):
-		var left_typed = assignment_data.get("", "")
-		return _process_to_enum_data(left_typed)
-	else:
-		var left_typed = assignment_data.get("", "")
-		if left_typed.ends_with(")") and operator == "==": # converts to dict
-			printerr("FUNC COMPARISON BRANCH: ", left_typed)
-			return false
-			#return _process_to_enum_data(_func_comparison(left_typed))
-		return _process_to_enum_data(left_typed)
-
-
-func _func_call() -> bool:
-	var current_script = get_current_script()
-	#var func_call_data = get_func_call_data()
-	var func_call_data ={}
-	var full_call:String = func_call_data.get("")
-	var full_call_typed:String
-	var current_arg_idx = func_call_data.get("")
-	var current_args = func_call_data.get("")
-	
-	if current_arg_idx < current_args.size():
-		var arg_text = current_args[current_arg_idx]
-		#if arg_text != "":
-			#return false #^ remove so you can start typing
-	
-	var external_method = false
-	var access_name = "" # for class body
-	var func_method = full_call
-	
-	if full_call.find(".") > -1:
-		#func_call_data = get_func_call_data(true)
-		full_call_typed = func_call_data.get("")
-		#print("FULL CALL TYPED ", full_call_typed)
-		var rfind_idx = full_call_typed.rfind(".") #^ full call omits parenthesis in final method
-		func_method = full_call_typed.substr(rfind_idx + 1) #^ doesn't need to be bracket safe
-		access_name = full_call_typed.substr(0, rfind_idx)
-		
-		
-		if access_name != "":
-			external_method = true
-	
-	var data
-	if not external_method: #^c internal method
-		var current_class = get_caret_context().current_class
-		#if class_has_func(func_method, current_class):
-		if false:
-			#var func_args = get_func_args(current_class, func_method)
-			var func_args = {}
-			if func_args.has("args"): #^ args from property info
-				data = func_args #^ set to data to process below, property info
-			else: #^ data from script map
-				if func_args.is_empty():
-					return false
-				var arg_names = func_args.keys()
-				if arg_names.size() > current_arg_idx:
-					var current_arg_name = arg_names[current_arg_idx]
-					var current_arg_type = func_args[current_arg_name]
-					return _process_to_enum_data(current_arg_type, current_arg_idx == 0)
-			
-		else: #^c not in current script, thus inherited
-			if current_class == "":
-				data = get_script_member_info_by_path(current_script, func_method, ["property", "method", "const"], false)
-			else:
-				var inner_script = get_script_member_info_by_path(current_script, current_class, ["const"], false)
-				if inner_script is GDScript:
-					data = get_script_member_info_by_path(inner_script, func_method, ["property", "method", "const"], false)
-			
-	else: #^c external method, func call has "." in it
-		data = _get_cached_data(current_script.resource_path, full_call, data_cache)
-		if data == null:
-			var func_script = UClassDetail.get_member_info_by_path(current_script, access_name, UClassDetail._MEMBER_ARGS, false, true)
-			if func_script == null or func_script is not GDScript:
-				return false
-			if func_method == "new":
-				var method_list = func_script.get_script_method_list()
-				for method in method_list:
-					var name = method.get("name")
-					if name == "_init":
-						data = method
-						break
-			else:
-				data = UClassDetail.get_member_info_by_path(func_script, func_method, ["property", "method", "const"])
-			_store_data(current_script.resource_path, full_call, data, func_script, data_cache) # may need a better spot for?
-	
-	if data == null:
-		return false
-	
-	var args = data.get("args", [])
-	#print(args) #TODO this was erroring a string? Property info mismatch?
-	if args.size() > current_arg_idx:
-		var arg_data = args[current_arg_idx]
-		if not _is_property_info_enum(arg_data):
-			return false
-		
-		return _process_to_enum_data(arg_data, current_arg_idx == 0)
-	return false
-
-
-#region Placeholders
-
-func get_enum_members(enum_name:String, _class=null):
+	match s:
+		Pro.TimeFunction.TimeScale.MSEC:
+			pass
+		Pro.TimeFunction.TimeScale.USEC:
+			pass
 	pass
 
 
 
 
 
-#endregion
 
 
 
 
-func _process_to_enum_data(input_data, force_update:=false):
-	#print("Input Data: ", input_data)
-	var process_input = _process_input_data(input_data)
-	#print("PROCESS: ", process_input)
-	if process_input == null:
-		return false
-	
-	var enum_data = process_input.enum_data
-	var enum_script = process_input.enum_script
-	var member_path = process_input.member_path
-	
-	if enum_data == null:
-		return false
-	if not (enum_data is Dictionary or enum_data is PackedStringArray):
-		return false
-	
-	var alias
-	if enum_script != null:
-		var deep = true #^ this is set to true to allow searching inner classes, could cause issues with preloads
-		var enum_access_path = UClassDetail.script_get_member_by_value(enum_script, enum_data, deep, ["const"])
-		if enum_access_path == null: # should be impossible...
-			#print("COULD NOT GET ENUM ACCESS, SHOULD NOT HAPPEN: ", member_path)
-			#print(enum_script.resource_path)
-			return false
-		process_input["enum_access_path"] = enum_access_path
-		
-		var current_script = get_current_script()
-		member_path = _get_member_path_from_data(process_input, current_script)
-		#print("ACCESS ", enum_access_path, " MEMBER ", member_path)
-		alias = _check_inherited_preloads_for_alias(process_input, current_script)
-		if alias != null:
-			if show_alias_only:
-				member_path = alias
-				alias = null
-			else:
-				if alias == member_path:
-					alias = null
-				if member_path == null:
-					member_path = alias
-					alias = null
-		
-	else: # set to null for built in classes
-		member_path = DataAccessSearch.check_for_godot_class_inheritance(member_path)
-	
-	if member_path == null and alias == null:
-		return false
-	
-	var other_options = []
-	if process_input.has("enum_class"):
-		process_input.member_path = member_path
-		other_options = _get_enum_vars(process_input)
-	
-	if enum_data is Dictionary:
-		enum_data = enum_data.keys()
-	if enum_data.is_empty():
-		return false
-	return _add_code_completions(member_path, enum_data, other_options, force_update, alias)
-
-## Process member data string or dictionary.
-func _process_input_data(input_data):
-	#print("INPUT DATA ", input_data)
-	if input_data is String:
-		var processed_data = _process_input_data_string(input_data)
-		#print(input_data, " MAIN CALL STRING: ", processed_data)
-		if processed_data is Dictionary:
-			if processed_data.has("enum_script"):
-				return processed_data
-			else:
-				input_data = processed_data
-	
-	if input_data is Dictionary:
-		var processed_data = _process_input_data_dict(input_data)
-		#print(input_data, " MAIN CALL DICT: ", processed_data)
-		if processed_data is Dictionary:
-			if processed_data.has("enum_script"):
-				return processed_data
-	return null
-
-## Process string to enum data.
-func _process_input_data_string(input_data:String):
-	var member_path = input_data
-	var script_editor_current_script = get_current_script()
-	var current_script = script_editor_current_script
-	var current_class = get_caret_context().current_class
-	if current_class != "":
-		current_script = get_script_member_info_by_path(current_script, current_class, ["const"])
-		if current_script == null:
-			return null
-	
-	if input_data.begins_with("res://"):
-		var gd_idx = input_data.find(".gd.")
-		if gd_idx == -1:
-			return null
-		var class_path = input_data.substr(0, gd_idx + 3) # + 3 to keep ext
-		var enum_script = load(class_path)
-		var enum_access_path = input_data.substr(gd_idx + 4) # + 4 to omit ext
-		var in_current_class = false
-		if enum_access_path.find(".") > -1:
-			var inner_class_path = UString.trim_member_access_back(enum_access_path)
-			enum_access_path = UString.get_member_access_back(enum_access_path)
-			enum_script = get_script_member_info_by_path(enum_script, inner_class_path, ["const"])
-			
-			if script_editor_current_script.resource_path == class_path and inner_class_path == current_class:
-				in_current_class = true #^ will this cause issues?
-		
-		var enum_data = get_script_member_info_by_path(enum_script, enum_access_path, ["const"])
-		if enum_data is Dictionary and _is_dict_enum(enum_data):
-			member_path = enum_access_path
-			if in_current_class:
-				enum_script = null
-			return {"enum_data":enum_data, "enum_script":enum_script, "member_path":member_path, "enum_class": input_data}
-		else:
-			return null
-	
-	var godot_built_in_check = _check_godot_class_enum(input_data, current_script)
-	if godot_built_in_check != null: #^ check for built ins
-		var enum_data = godot_built_in_check
-		return {"enum_data":enum_data, "enum_script":null, "member_path": member_path, "enum_class": input_data}
-	
-	var is_global = false
-	var dot_idx = input_data.find(".")
-	if dot_idx > -1:
-		var first_name = UString.get_member_access_front(input_data)
-		var path = UClassDetail.get_global_class_path(first_name)
-		if path != "":
-			is_global = true
-	
-	if not is_global:
-		if dot_idx == -1: #^ no dot, check for variants or if enum in current script
-			if singleton.VariantChecker.check_type(input_data):
-				return null
-			
-			var enum_data = get_enum_members(input_data)
-			if enum_data != null:
-				return {"enum_data":enum_data, "enum_script":null, "member_path": input_data, "enum_class": input_data}
-			
-			enum_data = get_script_member_info_by_path(current_script, input_data, ["const"], false)
-			if enum_data != null:
-				return {"enum_data":enum_data, "enum_script":null, "member_path": input_data, "enum_class": input_data}
-			
-		else:
-			var enum_name = UString.get_member_access_back(input_data)
-			var enum_class = UString.trim_member_access_back(input_data)
-			var enum_data = get_enum_members(enum_name, enum_class)
-			if enum_data != null:
-				return {"enum_data":enum_data, "enum_script":current_script, "member_path": input_data, "enum_class": input_data}
-	
-	var member_info = get_script_member_info_by_path(current_script, input_data) #^ must be all hints to traverse properties!
-	if member_info != null:
-		if member_info is Dictionary:
-			if _is_dict_enum(member_info):
-				var enum_data = member_info
-				if dot_idx == -1:
-					return {"enum_data":enum_data, "enum_script":null, "member_path": member_path, "enum_class": input_data}
-				else:
-					var enum_script_path = UString.trim_member_access_back(input_data)
-					var enum_script = get_script_member_info_by_path(current_script, enum_script_path)
-					if enum_script is Dictionary: #^ ensure property info converted to script in chained members
-						enum_script = UClassDetail.get_script_from_property_info(enum_script)
-					if enum_script != null:
-						return {"enum_data":enum_data, "enum_script":enum_script, "member_path": member_path, "enum_class": input_data}
-			else:
-				var processed_data = _process_input_data_dict(member_info)
-				#printerr(input_data, " PROCESS STRING CALL DICT", processed_data)
-				return processed_data
-		#else:
-			#printerr("Enum Member info not dict: ", member_info)
-	
-	return null
-
-## Process dictionary to enum data.
-func _process_input_data_dict(input_data):
-	var current_script = get_current_script()
-	if _is_property_info_enum(input_data):
-		var class_nm = input_data.get("class_name")
-		var processed_data = _process_input_data_string(class_nm)
-		if processed_data is Dictionary:
-			#printerr(input_data, " PROCESS DICT CALL STRING: ", processed_data)
-			return processed_data
-	
-	return null
 
 
-## Access path is a path of classes ie. SomeClass.MyEnum, to access the enum member.
-## Enum Data is an array of enum member names.
-func _add_code_completions(access_path:String, enum_members:Array, other_options:= [], force_update:=false, alias=null) -> bool:
-	var script_editor = get_code_edit()
-	
-	var enum_icon = EditorInterface.get_editor_theme().get_icon("Enum", "EditorIcons")
-	
-	for member in enum_members: # TODO options can be added via inherited method
-		var full_name = member
-		if access_path != "":
-			full_name = access_path + "." + member #^ string + int error here TODO
-		script_editor.add_code_completion_option(CodeEdit.KIND_ENUM, full_name, full_name, Color.GRAY, enum_icon)
-	
-	if alias != null:
-		for member in enum_members:
-			var full_name = member
-			if alias != "":
-				full_name = alias + "." + member
-			var display_name = full_name + "[script alias]"
-			script_editor.add_code_completion_option(CodeEdit.KIND_ENUM, display_name, full_name, Color.GRAY, enum_icon, null, 256)
-	
-	if not other_options.is_empty():
-		var prop_icon = EditorInterface.get_editor_theme().get_icon("MemberProperty", "EditorIcons")
-		for option in other_options:
-			script_editor.add_code_completion_option(CodeEdit.KIND_VARIABLE, option, option, Color.GRAY, prop_icon)
-	
-	script_editor.update_code_completion_options(force_update)
-	return true
 
 
 func _get_enum_vars(processed_data:Dictionary) -> Array:
@@ -792,8 +599,8 @@ func _get_enum_vars(processed_data:Dictionary) -> Array:
 		if p == current_assigned:
 			continue
 		var data = properties.get(p)
-		if not _is_property_info_enum(data):
-			continue
+		#if not _is_property_info_enum(data):
+			#continue
 		var _class_name = data.get("class_name")
 		#print(_class_name, " ", enum_class_string, " ",member_path)
 		if _class_name == enum_class_string:
@@ -808,180 +615,8 @@ func _get_enum_vars(processed_data:Dictionary) -> Array:
 	return option_dict.keys()
 
 
-func _get_member_path_from_data(processed_input:Dictionary, script:GDScript):
-	var t = ALibRuntime.Utils.UProfile.TimeFunction.new("GET PATH")
-	var enum_data = processed_input.enum_data
-	var enum_script = processed_input.enum_script
-	var access_path = processed_input.member_path
-	var enum_class_string = processed_input.enum_class
-	var enum_access_path = processed_input.enum_access_path
-	
-	var enum_script_path = enum_script.resource_path
-	var current_script_path = script.resource_path
-	
-	if not enum_class_string.begins_with("res://"):
-		var global_class_name = UString.get_member_access_front(enum_class_string)
-		var path = UClassDetail.get_global_class_path(global_class_name)
-		var inherited_scripts = UClassDetail.script_get_inherited_script_paths(script)
-		if path in inherited_scripts:
-			return UString.trim_member_access_front(enum_class_string)
-		
-		return enum_class_string
-	
-	if enum_class_string.begins_with(current_script_path):
-		return enum_class_string.get_slice(".gd.", 1)
-	
-	var preload_alias = _get_preload_alias(access_path, enum_class_string) #^ unsure if want to have this here too
-	if preload_alias != null:
-		return preload_alias
-	
-	
-	t.stop()
-	var global_classes_data = get_global_script_location(enum_script)
-	if global_classes_data == null:
-		#print("DONT HAVE GLOBAL")
-		return null
-	
-	#print("HAVE GLOBAL")
-	var class_hint = ""
-	#var current_state = get_state()
-	#if current_state == State.FUNC_ARGS:
-		#var func_call_data = get_func_call_data(true)
-		#var full_call_typed = func_call_data.get(FuncCall.FULL_CALL_TYPED, "")
-		#class_hint = UString.get_member_access_front(full_call_typed)
-	#elif current_state == State.ASSIGNMENT:
-		#var assignment_data = get_assignment_at_caret()
-		#var left_typed = assignment_data.get(Assignment.LEFT_TYPED, "")
-		#class_hint = UString.get_member_access_front(left_typed)
-	print(class_hint)
-	var global_member_access_path = ""
-	var global_data = {}
-	if global_classes_data.has(class_hint):
-		global_data = global_classes_data[class_hint]
-	else:
-		var first_class_hint = global_classes_data.keys()[0]
-		global_data = global_classes_data[first_class_hint]
-		class_hint = first_class_hint
-	
-	var member_access = global_data["member_access"]
-	#print("QUICK GRAB")
-	t.stop()
-	return class_hint + "." + member_access + "." + enum_access_path
 
 
-func _check_inherited_preloads_for_alias(processed_input:Dictionary, script:GDScript):
-	var enum_data = processed_input.enum_data
-	var enum_script = processed_input.enum_script
-	var access_path = processed_input.member_path
-	var enum_class_string = processed_input.enum_class
-	var enum_access_path = processed_input.enum_access_path
-	
-	var dot_idx = access_path.find(".")
-	if dot_idx == -1: #^ check current script if not member access
-		var member_info = UClassDetail.get_member_info(script, access_path, ["const"])
-		if member_info is Dictionary and _is_dict_enum(member_info):
-			#print("ENUM IN SCRIPT, NO DOT: ", access_path)
-			return access_path
-	
-	var preload_alias = _get_preload_alias(access_path, enum_class_string)
-	if preload_alias != null:
-		return preload_alias
-	
-	var immediate_alias = DataAccessSearch.script_alias_search_static(access_path, enum_data, false, script)
-	if immediate_alias != null: #^ this could cause issues with duplicate enums in the current class
-		var alias_path = immediate_alias
-		#print("IMMEDIATE ALIAS")
-		return alias_path
-	
-	#^ deep alias search
-	var script_path = script.resource_path
-	var script_alias_section = data_cache.get_or_add("ScriptAlias", {})
-	var cached_alias = _get_cached_data(script_path, enum_script, script_alias_section)
-	if cached_alias == null:
-		var script_alias = DataAccessSearch.script_alias_search_static(access_path, enum_script, false, script)
-		if script_alias != null: #^ search current script for enums parent script preloaded
-			var alias_path = script_alias + "." + enum_access_path
-			_store_data(script_path, enum_script, alias_path, script, script_alias_section)
-			return alias_path
-		
-		var preloads = UClassDetail.script_get_preloads(script, true, true)
-		for _name in preloads:
-			var pl_script = preloads.get(_name)
-			script_alias = DataAccessSearch.script_alias_search_static(access_path, enum_script, false, pl_script)
-			if script_alias != null: #^ search preloads and inner classes for enums parent script preloaded
-				var alias_path = _name + "." + script_alias + "." + enum_access_path
-				_store_data(script_path, enum_script, alias_path, script, script_alias_section)
-				return alias_path
-		
-		_store_data(script_path, enum_script, &"%NO_PATH%", script, script_alias_section) # store no path until current script is saved
-	else:
-		if cached_alias != &"%NO_PATH%":
-			return cached_alias
-	
-	#print("COULD NOT FIND ALIAS")
-	return null
-
-func _get_preload_alias(access_path:String, enum_class_string:String):
-	var best_preload_alias = ""
-	var best_preload_length = 0
-	var preload_map = {}# get_preload_map() # path is key
-	if preload_map.has(enum_class_string):
-		#print("DIRECT PRELOAD")
-		return preload_map.get(enum_class_string)
-	
-	for nm_or_path:String in preload_map.keys():
-		if access_path.begins_with(nm_or_path) or enum_class_string.begins_with(nm_or_path):
-			if nm_or_path.length() > best_preload_length:
-				best_preload_alias = nm_or_path
-				best_preload_length = best_preload_alias.length()
-	
-	if best_preload_alias != "":
-		var val = preload_map.get(best_preload_alias)
-		var new_path = val
-		if access_path.begins_with(best_preload_alias):
-			new_path = access_path.trim_prefix(best_preload_alias)
-			new_path = val + new_path
-		elif enum_class_string.begins_with(best_preload_alias):
-			new_path = enum_class_string.trim_prefix(best_preload_alias)
-			new_path = val + new_path
-			pass
-		#prints("PRELOAD BEGINS WITH: ", best_preload_alias,":", val, access_path, "->", new_path)
-		return new_path
-	
-	return null
-
-
-func _check_godot_class_enum(member_path, script_to_check:GDScript):
-	var dot_idx = member_path.find(".")
-	if dot_idx > -1:
-		var first_access_part = member_path.substr(0, dot_idx)
-		if ClassDB.class_exists(first_access_part):
-			var last_access = member_path.substr(dot_idx + 1)
-			var member_info = ClassDB.class_get_enum_constants(first_access_part, last_access)
-			return member_info
-	else:
-		var base_type = script_to_check.get_instance_base_type()
-		if ClassDB.class_has_enum(base_type, member_path):
-			return ClassDB.class_get_enum_constants(base_type, member_path)
-
-func _is_dict_enum(dict:Dictionary):
-	var count = 0
-	for val in dict.values():
-		if val is not int:
-			return false
-		if val != count:
-			return false
-		count += 1
-	return true
-
-
-func _is_property_info_enum(data:Dictionary):
-	var type = data.get("type", -1)
-	if type != 2:
-		return false
-	if data.get("class_name", "") != "":
-		return true
-	return false
 
 class EditorSet:
 	const ENUM_ENABLE = &"plugin/code_completion/enum/enable"

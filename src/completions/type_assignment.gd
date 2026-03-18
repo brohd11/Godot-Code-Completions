@@ -98,6 +98,8 @@ func _get_valid_constants_from_script(script:GDScript):
 func _get_current_class_completion_options(class_obj:GDScriptParser.ParserClass):
 	var options = {}
 	var class_script = class_obj.script_resource
+	if not is_instance_valid(class_script):
+		return options
 	
 	var parser = get_gdscript_parser()
 	
