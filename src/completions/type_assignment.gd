@@ -15,10 +15,13 @@ func _on_editor_script_changed(script):
 
 func _on_code_completion_requested(script_editor:CodeEdit) -> bool:
 	var caret_context = get_caret_context()
+	if caret_context.token_state == TokenState.COMMENT:
+		return false
 	if not caret_context.expression_state == CaretContext.ExpressionState.TYPE_HINT:
 		return false
 	if caret_context.is_in_dictionary():
 		return false
+	
 	
 	
 	var import_data = get_data("import_data")

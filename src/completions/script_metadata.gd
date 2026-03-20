@@ -60,7 +60,7 @@ func get_script_metadata(path:String):
 	if is_current_script:
 		parser = get_gdscript_parser()
 	else:
-		parser = parser.new_parser(path)
+		parser = parser.get_parser_for_path(path)
 	
 	var metadata = parse_script_metadata(parser)
 	CacheHelper.store_data(path, metadata, _cache, [path])

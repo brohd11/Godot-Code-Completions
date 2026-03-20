@@ -14,6 +14,7 @@ const CacheHelper = DataAccessSearch.CacheHelper
 
 
 const EditorGDScriptParser = preload("res://addons/addon_lib/brohd/alib_editor/misc/parser/editor_parser.gd")
+const CaretContext = EditorGDScriptParser.GDScriptParser.CaretContext
 
 
 #^b{ LSP
@@ -104,7 +105,7 @@ enum ScriptCache {
 var data_access_search:DataAccessSearch
 
 var _editor_gdscript_parser:EditorGDScriptParser.GDScriptParser
-var _caret_context:EditorGDScriptParser.GDScriptParser.CaretContext
+var _caret_context:CaretContext
 
 var global_script_constant_map = {}
 var _global_script_constant_map_data_cache = {}
@@ -286,14 +287,16 @@ func _on_code_completion_requested() -> void:
 	_caret_context = _editor_gdscript_parser.get_caret_context()
 	t.stop()
 	for editor_code_completion in code_completions.keys():
-		#var t = TimeFunction.new(str(editor_code_completion.get_script().resource_path.get_file()))
+		#var t2 = TimeFunction.new(str(editor_code_completion.get_script().resource_path.get_file()))
 		var handled = editor_code_completion._on_code_completion_requested(script_editor)
-		#t.stop()
+		#t2.stop()
 		if handled:
 			_reset_caret_context()
 			return
 	
 	_reset_caret_context()
+
+
 
 func _reset_caret_context():
 	_caret_context = null
