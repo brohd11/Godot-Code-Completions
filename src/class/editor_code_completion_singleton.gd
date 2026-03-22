@@ -287,9 +287,9 @@ func _on_code_completion_requested() -> void:
 	_caret_context = _editor_gdscript_parser.get_caret_context()
 	t.stop()
 	for editor_code_completion in code_completions.keys():
-		#var t2 = TimeFunction.new(str(editor_code_completion.get_script().resource_path.get_file()))
+		var t2 = TimeFunction.new(str(editor_code_completion.get_script().resource_path.get_file()))
 		var handled = editor_code_completion._on_code_completion_requested(script_editor)
-		#t2.stop()
+		t2.stop()
 		if handled:
 			_reset_caret_context()
 			return

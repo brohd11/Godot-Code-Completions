@@ -5,7 +5,9 @@ const UString = UtilsRemote.UString
 
 const ScriptMetadata = preload("res://addons/code_completions/src/completions/script_metadata.gd")
 
+const GDScriptParser = ScriptMetadata.GDScriptParser
 const CaretContext = ScriptMetadata.CaretContext
+const ParserKeys = GDScriptParser.Keys
 
 var script_metadata:ScriptMetadata
 

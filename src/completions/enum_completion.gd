@@ -67,8 +67,8 @@ func _on_code_completion_requested(_script_editor:CodeEdit) -> bool:
 func _operator(caret_context:CaretContext):
 	var op_data = caret_context.get_operation_data()
 	comp_object = op_data
-	print("ENUM OP::", op_data.left_type)
-	return _process_identifier(op_data.left_type)
+	print("ENUM OP::", op_data.left_symbol_data.type)
+	return _process_identifier(op_data.left_symbol_data.type)
 
 func _match_branch(caret_context:CaretContext):
 	var match_type = caret_context.get_match_block_data()
@@ -80,7 +80,7 @@ func _match_branch(caret_context:CaretContext):
 		return false
 	comp_object = match_type
 	
-	return _process_identifier(match_type.type)
+	return _process_identifier(match_type.symbol_data.type)
 
 func _is_function_call():
 	return comp_object is CaretContext.FunctionCallData
@@ -217,6 +217,7 @@ func _add_custom_enum_members(script_data:Dictionary):
 		return false
 	
 	var access_options = comp_object.get_type_access_path()
+	print_deb(T.ACCESS_PATH, "ACCESS", access_options)
 	
 	print_deb(T.ACCESS_PATH, "STANDARD", access_options.standard)
 	print_deb(T.ACCESS_PATH, "SCRIPT ALIAS", access_options.script_alias)

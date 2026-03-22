@@ -51,7 +51,7 @@ func _comment_complete(caret_context:CaretContext):
 	
 	if not _is_caret_in_tag_type_declaration(caret_context):
 		return false
-	print("IN COMMENT TYPE")
+	print("IN COMMENT TYPE") # maybe list global or have a setting with array of names
 	var word_before_cursor = caret_context.expression_before_caret
 	
 	var current_class = caret_context.current_class # could use class obj here
@@ -74,41 +74,98 @@ func _comment_complete(caret_context:CaretContext):
 	script_metadata.update_completion_options()
 	return true
 
+const TA = AnotherTest.TestArg
 
 func _function_call(caret_context:CaretContext):
 	var script_editor = script_metadata.get_code_edit()
 	var current_script = script_metadata.get_current_script()
+	var parser = script_metadata.get_gdscript_parser()
 	
 	var function_call_data = caret_context.get_function_call_data()
-	print("ARG LOC:: FUNC OBJ::",function_call_data.function_object)
-	var function_object = function_call_data.function_object
-	if not function_object.begins_with("res://"):
+	var function_full_script = function_call_data.get_function_script()
+	if not function_full_script.begins_with("res://"):
 		return false
-	var script_data = UString.get_script_path_and_suffix(function_object)
+	
+	#AnotherTest.test_arg()
+	var script_data = UString.get_script_path_and_suffix(function_full_script)
 	var function_script_path = script_data[0]
 	var function_script = load(function_script_path)
-	var class_path = script_data[1]
+	var function_class_path = script_data[1]
+	
+	# check for metadata in the script where func is being called
 	var metadata = get_arg_location_metadata(function_script_path)
+	print("META ", metadata)
 	if metadata == null:
 		return false
-	print("META ", metadata)
-	print(function_call_data.function_name)
-	var class_method_name = UString.dot_join(class_path, function_call_data.function_name)
+	print("&*&*&*& BREAK")
 	
+	print(function_call_data.get_function_name())
+	var class_method_name = UString.dot_join(function_class_path, function_call_data.get_function_name())
 	var method_data = metadata.get(class_method_name)
 	print("METH DATA::",method_data, "::", class_method_name)
 	if not method_data:
 		return false
-	
 	var current_arg = function_call_data.func_get_current_arg()
 	if not method_data.has(current_arg.name):
 		return false
 	
-	var target_class = UString.dot_join(class_path, method_data[current_arg.name])
+	#var target_class = UString.dot_join(function_class_path, method_data[current_arg.name])
+	var target_class = method_data[current_arg.name] # this needs to check scope some how. classes can be with the class or not
+	var target_arg = ""
+	if target_class.contains("-"):
+		target_arg = target_class.get_slice("-", 1)
+		target_class = target_class.get_slice("-", 0)
+	
+	print("TARGET CLASS ", target_class)
+	
+	#AnotherTest.test_arg(AnotherTest.TestArg.SomeMore.More)
+	
+	#var script_parser_data = parser.get_parser_and_class_obj_for_script(function_object)
+	#var class_obj = script_parser_data.get("class_obj") as ScriptMetadata.GDScriptParser.ParserClass
+	var script_parser = parser.get_parser_for_path(function_script_path)
+	var class_obj = script_parser.get_class_object(target_class)
+	print("INITIAL CLASS ", class_obj)
+	if not is_instance_valid(class_obj):
+		return false
+	var valid_classes = []
+	if target_arg == "d" or target_arg == "deep":
+		for access_path in script_parser._class_access.keys():
+			if access_path.begins_with(class_obj.access_path):
+				valid_classes.append(script_parser.get_class_object(access_path))
+	else:
+		valid_classes.append(class_obj)
+	
+	var search_term = UString.dot_join(function_script_path, target_class)
+	var path_to_options = function_call_data.get_type_access_path(search_term)
+	print("PATH TO ", path_to_options.standard)
+	print("PATH TO ", path_to_options.script_alias)
+	print("PATH TO ", path_to_options.global)
+	
+	var path_to_type = path_to_options.standard
+	
+	print(valid_classes)
+	
+	for valid_class in valid_classes:
+		for c in valid_class.constants.keys():
+			var member_data = valid_class.get_member(c)
+			if not member_data.get(ParserKeys.ACCESS_PATH).begins_with(valid_class.access_path):
+				continue
+			var type = valid_class.get_member_type(c)
+			if type != "String" and type != "StringName":
+				continue
+			var trimmed_path = smoosh_strings(path_to_type, valid_class.access_path).trim_prefix(".").trim_suffix(".")
+			var full_path = UString.dot_joinv([trimmed_path, c])
+			print("TRIM ", trimmed_path, " FULL ", full_path, " ACC ", valid_class.access_path)
+			var cc_dict = script_metadata.get_code_complete_dict(CodeEdit.CodeCompletionKind.KIND_CONSTANT, full_path, full_path, "String")
+			script_metadata.add_completion_option(script_editor, cc_dict)
+	
+	
+	script_metadata.update_completion_options(function_call_data.get_text_current_arg() == "")
+	return true
 	
 	var all_constants = {}
 	var target_script = function_script
-	if class_path != "":
+	if function_class_path != "":
 		target_script = UClassDetail.get_member_info_by_path(target_script, target_class)
 	if target_script == null:
 		return false
@@ -125,7 +182,7 @@ func _function_call(caret_context:CaretContext):
 	if function_script_path != current_script.resource_path:
 		var access_script = function_script
 		if access_script.get_global_name() == "":
-			var access_obj = function_call_data.access_object
+			var access_obj = function_call_data.symbol_data.current_script_access_object
 			var access_obj_type = access_obj.type
 			main_script_access_path = access_obj.declaration_symbol
 			var access_script_data = UString.get_script_path_and_suffix(access_obj_type)
@@ -163,7 +220,19 @@ func _function_call(caret_context:CaretContext):
 	script_metadata.update_completion_options(function_call_data.get_text_current_arg() == "")
 	return true
 
-
+func smoosh_strings(a: String, b: String) -> String:
+	# Find the maximum possible overlap length
+	var max_overlap = min(a.length(), b.length())
+	
+	# Loop backwards from the largest possible overlap down to 1
+	for i in range(max_overlap, 0, -1):
+		# Check if the end of String A matches the beginning of String B
+		if a.right(i) == b.left(i):
+			# If they match, combine them, skipping the overlapping part in String B
+			return a + b.substr(i)
+			
+	# If no overlap is found, just stick them together normally
+	return a + b
 
 
 func _syntax_highlighting(_script_editor:CodeEdit, current_line_text:String, line_idx:int, comment_tag_idx:int):
@@ -221,12 +290,18 @@ func _syntax_highlighting(_script_editor:CodeEdit, current_line_text:String, lin
 	return hl_info
 
 
+func te():
+	#test_method()
+	pass
+	#test_method()
+	Dart.test_nest(Dart.Nested.ANOTHER_VAL)
+	
+	
 
 
 #! arg_location my_setting:Dart.Nested test_2:Dart.Nested.Keep.Going
 ## THIS IS A DOC COMMENT
 func test_method(my_setting:String, test_2:String):
-	#Dart.test_nest()
 	pass
 
 class Dart:
