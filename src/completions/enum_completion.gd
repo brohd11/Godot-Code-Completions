@@ -4,7 +4,7 @@ extends EditorCodeCompletion
 
 const CacheHelper = EditorCodeCompletionSingleton.CacheHelper
 
-const ENUM_SUFFIX = EditorCodeCompletionSingleton.EditorGDScriptParser.GDScriptParser.Keys.ENUM_PATH_SUFFIX
+const ENUM_SUFFIX = ParserKeys.ENUM_PATH_SUFFIX
 
 var enum_enable:= false
 var show_member_suggestions:= false
@@ -20,6 +20,7 @@ var function_object:String
 var argument_access_object:CaretContext.AccessObject
 
 var comp_object
+
 
 
 func _singleton_ready():
@@ -89,7 +90,7 @@ func _function_call(caret_context:CaretContext):
 	var func_data = caret_context.get_function_call_data()
 	var current_arg = func_data.func_get_current_arg()
 	comp_object = func_data
-	print(current_arg.type)
+	print("ENUM FUNC::", current_arg.type)
 	return _process_identifier(current_arg.type)
 
 
@@ -233,6 +234,12 @@ func _add_custom_enum_members(script_data:Dictionary):
 			#access_options.script_alias = access_options.script_alias.trim_suffix(e).trim_suffix(".")
 		#if access_options.global.ends_with(e) and e != enum_name:
 			#access_options.global = access_options.global.trim_suffix(e).trim_suffix(".")
+	
+	var resolved = gdscript_parser.resolve_expression(access_options.standard, get_caret_context().caret_line)
+	if not resolved.ends_with(enum_name + ENUM_SUFFIX):
+		access_options.standard = ""
+	print("ENUM RES CHECK",  resolved)
+	
 	
 	return _add_enum_code_completions(access_options.standard, enum_members.keys(), [], force, access_options.script_alias, access_options.global)
 

@@ -1,17 +1,50 @@
 class_name EditorCodeCompletion
 
 const EditorCodeCompletionSingleton = preload("res://addons/code_completions/src/class/editor_code_completion_singleton.gd")
-const UClassDetail = preload("res://addons/addon_lib/brohd/alib_editor/utils/src/u_class_detail.gd")
-const UString = preload("res://addons/addon_lib/brohd/alib_runtime/utils/u_string.gd")
-const DataAccessSearch = EditorCodeCompletionSingleton.DataAccessSearch
 
 const TagLocation = EditorCodeCompletionSingleton.TagLocation
 
-const GDScriptParser = EditorCodeCompletionSingleton.EditorGDScriptParser.GDScriptParser
-const CaretContext = GDScriptParser.CaretContext
+const UtilsRemote = EditorCodeCompletionSingleton.UtilsRemote
+const UClassDetail = UtilsRemote.UClassDetail
+const UString = UtilsRemote.UString
+
+
+const ParserKeys = GDScriptParser.Keys
+
 const TokenState = CaretContext.TokenState
 const ExpressionState = CaretContext.ExpressionState
+const GDScriptParser = UtilsRemote.EditorGDScriptParser.GDScriptParser
+const CaretContext = GDScriptParser.CaretContext
 const ScopeState = CaretContext.ScopeState
+
+class Preloads:
+	const TestPreload = preload("res://test_comp.gd")
+
+class Class:
+	const Nest = _ClassLayers.AnotherWrapper.Nest
+
+class _ClassLayers extends NewScript3:
+	class AnotherWrapper extends AnotherTest:
+		class Nest extends Preloads.TestPreload:
+			pass
+		
+			static func ye(yar:String) -> MyNum:
+				return MyNum.YUP
+				pass
+			pass
+	
+	static func test_method():
+		print("YUP TEST")
+		pass
+	
+	pass
+
+static func test_method_base():
+	print("YUP")
+	pass
+
+class Another:
+	pass
 
 var singleton:EditorCodeCompletionSingleton
 

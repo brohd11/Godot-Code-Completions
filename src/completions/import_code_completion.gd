@@ -145,17 +145,16 @@ func _on_code_completion_requested(script_editor:CodeEdit) -> bool:
 	
 	
 	var existing_options = script_editor.get_code_completion_options()
+	
+	# check if the current options are enum completions. If they all are, don't alter
 	var is_enum = true
-	var t = ALibRuntime.Utils.UProfile.TimeFunction.new("ENUM CHECK")
 	if existing_options.is_empty():
 		is_enum = false
 	else:
 		for o in existing_options:
 			if o.kind != CodeEdit.CodeCompletionKind.KIND_ENUM:
-				#print(o.display_text)
 				is_enum = false
 				break
-	t.stop()
 	if is_enum:
 		return false
 	

@@ -13,6 +13,7 @@ func _on_editor_script_changed(script):
 	pass
 
 
+
 func _on_code_completion_requested(script_editor:CodeEdit) -> bool:
 	var caret_context = get_caret_context()
 	if caret_context.token_state == TokenState.COMMENT:
@@ -22,8 +23,7 @@ func _on_code_completion_requested(script_editor:CodeEdit) -> bool:
 	if caret_context.is_in_dictionary():
 		return false
 	
-	
-	
+	# import data grabbed from import_code_completion
 	var import_data = get_data("import_data")
 	var hide_global_classes = import_data.get("hide_global_classes_setting", false)
 	var show_global_classes = import_data.get("show_global_classes", {})
@@ -32,14 +32,10 @@ func _on_code_completion_requested(script_editor:CodeEdit) -> bool:
 	
 	var type_hint_text = caret_context.get_type_hint_text()
 	
-	var class_obj = caret_context.get_current_class_object()
 	
-	
-	
-	#var d:d
 	var current_script = get_current_script()
 	var class_script = current_script
-	if type_hint_text.find(".") > -1:
+	if type_hint_text.find(".") > -1: # find the script of the 
 		var class_check = type_hint_text.substr(0, type_hint_text.rfind("."))
 		var nested_class_script = get_script_member_info_by_path(current_script, class_check, ["const"])
 		if nested_class_script is GDScript:
@@ -47,7 +43,7 @@ func _on_code_completion_requested(script_editor:CodeEdit) -> bool:
 		else:
 			return false
 	
-	
+	var class_obj = caret_context.get_current_class_object()
 	var options:Dictionary
 	if class_script == current_script:
 		#return false # in 4.6 this is still necessary for "as"
@@ -112,7 +108,7 @@ func _get_current_class_completion_options(class_obj:GDScriptParser.ParserClass)
 		if member_type == GDScriptParser.Keys.MEMBER_TYPE_ENUM:
 			_add_dict_entry(options, c, true)
 		else:
-			var type = parser.get_identifier_type(c)
+			var type = parser.resolve_expression(c)
 			if type.ends_with(GDScriptParser.Keys.ENUM_PATH_SUFFIX):
 				_add_dict_entry(options, c, true)
 			elif type.begins_with("res://"):
@@ -122,7 +118,7 @@ func _get_current_class_completion_options(class_obj:GDScriptParser.ParserClass)
 		_add_dict_entry(options, ic)
 	
 	var class_base_script = class_script.get_base_script()
-	if class_base_script != null:
+	if class_base_script != null: # getting the inherited via UClassDetail, this could probably be switched to parser now
 		options.merge(_get_valid_constants_from_script(class_base_script))
 	
 	return options

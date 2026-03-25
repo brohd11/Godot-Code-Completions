@@ -7,7 +7,7 @@ func _get_completion_settings() -> Dictionary:
 
 func _on_code_completion_requested(script_editor:CodeEdit) -> bool:
 	var caret_context = get_caret_context()
-	if caret_context.expression_state != CaretContext.ExpressionState.MEMBER_ACCESS:
+	if caret_context.expression_state != ExpressionState.MEMBER_ACCESS:
 		return false
 	
 	var hide_private_members = singleton.hide_private_members

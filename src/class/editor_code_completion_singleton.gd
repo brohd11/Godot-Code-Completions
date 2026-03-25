@@ -5,30 +5,15 @@ const SingletonRefCount = Singleton.RefCount
 
 const PE_STRIP_CAST_SCRIPT = preload("res://addons/code_completions/src/class/editor_code_completion_singleton.gd")
 
-const UClassDetail = preload("res://addons/addon_lib/brohd/alib_editor/utils/src/u_class_detail.gd")
-const USort = preload("res://addons/addon_lib/brohd/alib_runtime/utils/u_sort.gd")
-const UString = preload("res://addons/addon_lib/brohd/alib_runtime/utils/u_string.gd")
+const UtilsRemote = preload("res://addons/code_completions/src/class/utils_remote.gd")
 
-const DataAccessSearch = preload("res://addons/code_completions/src/class/data_access_search.gd")
-const CacheHelper = DataAccessSearch.CacheHelper
+const UClassDetail = UtilsRemote.UClassDetail
+const USort = UtilsRemote.USort
+const UString = UtilsRemote.UString
+const CacheHelper = UtilsRemote.CacheHelper
 
-
-const EditorGDScriptParser = preload("res://addons/addon_lib/brohd/alib_editor/misc/parser/editor_parser.gd")
+const EditorGDScriptParser = UtilsRemote.EditorGDScriptParser
 const CaretContext = EditorGDScriptParser.GDScriptParser.CaretContext
-
-
-#^b{ LSP
-#const GDScriptLSPParser = preload("res://addons/code_completions/src/class/gdscript_lsp_parser.gd")
-#var gdscript_lsp_parser:GDScriptLSPParser
-#
-#func _create_lsp_parser():
-	#gdscript_lsp_parser = GDScriptLSPParser.new()
-#
-#func _process(delta: float) -> void:
-	#if is_instance_valid(gdscript_lsp_parser):
-		#gdscript_lsp_parser.process()
-
-#^}
 
 #^ defaults
 const EnumCompletion = preload("res://addons/code_completions/src/completions/enum_completion.gd")
@@ -48,7 +33,7 @@ var const_key_completion:ConstKey
 var script_metadata:ScriptMetadata
 
 
-const TimeFunction = ALibRuntime.Utils.UProfile.TimeFunction
+const TimeFunction = ALibRuntime.Utils.UProfile.TimeFunction #TODO erase
 
 static func get_singleton_name() -> String:
 	return "EditorCodeCompletion"
@@ -100,9 +85,9 @@ enum ScriptCache {
 	#SCRIPT_PRELOADS,
 }
 
+var code_completions:Dictionary = {}
+var _sort_queued:= false
 
-
-var data_access_search:DataAccessSearch
 
 var _editor_gdscript_parser:EditorGDScriptParser.GDScriptParser
 var _caret_context:CaretContext
@@ -110,15 +95,15 @@ var _caret_context:CaretContext
 var global_script_constant_map = {}
 var _global_script_constant_map_data_cache = {}
 
-var hide_private_members:=false
 
-var _sort_queued:= false
 
-var code_completions:Dictionary = {}
+
 
 var peristent_cache:Dictionary = {}
 var script_cache:Dictionary = {}
 
+#^ editor settings
+var hide_private_members:=false
 
 
 func _init(_node) -> void:
@@ -138,7 +123,6 @@ func _ready() -> void:
 
 func _singleton_init():
 	_clear_cache()
-	data_access_search = DataAccessSearch.new()
 
 # these should be simplified now, dont think it needs to be complex
 func _register_singletons(plugin:EditorPlugin):
@@ -209,10 +193,12 @@ func _init_set_settings():
 	var editor_settings = EditorInterface.get_editor_settings()
 	if not editor_settings.has_setting(EditorSet.HIDE_PRIVATE_PROP_SETTING):
 		editor_settings.set_setting(EditorSet.HIDE_PRIVATE_PROP_SETTING, false)
-	if not editor_settings.has_setting(EditorSet.GLOBAL_CHECK_SETTING):
-		editor_settings.set_setting(EditorSet.GLOBAL_CHECK_SETTING, DataAccessSearch.GlobalCheck.GLOBAL)
-	if not editor_settings.has_setting(EditorSet.SCRIPT_ALIAS_SETTING):
-		editor_settings.set_setting(EditorSet.SCRIPT_ALIAS_SETTING, DataAccessSearch.ScriptAlias.INHERITED)
+	
+	#^ these should be checked to see if needed
+	#if not editor_settings.has_setting(EditorSet.GLOBAL_CHECK_SETTING):
+		#editor_settings.set_setting(EditorSet.GLOBAL_CHECK_SETTING, DataAccessSearch.GlobalCheck.GLOBAL)
+	#if not editor_settings.has_setting(EditorSet.SCRIPT_ALIAS_SETTING):
+		#editor_settings.set_setting(EditorSet.SCRIPT_ALIAS_SETTING, DataAccessSearch.ScriptAlias.INHERITED)
 	
 	editor_settings.add_property_info(EditorSet.GLOBAL_CHECK_INFO)
 	editor_settings.add_property_info(EditorSet.SCRIPT_ALIAS_INFO)
@@ -224,8 +210,6 @@ func _set_settings():
 	var editor_settings = EditorInterface.get_editor_settings()
 	
 	hide_private_members = editor_settings.get_setting(EditorSet.HIDE_PRIVATE_PROP_SETTING)
-	data_access_search.set_global_check_setting(editor_settings.get_setting(EditorSet.GLOBAL_CHECK_SETTING))
-	data_access_search.set_script_alias_setting(editor_settings.get_setting(EditorSet.SCRIPT_ALIAS_SETTING))
 
 
 func code_completion_added():
@@ -425,6 +409,55 @@ func _build_global_script_constant_map():
 		CacheHelper.store_data(global_path, temp_cache_dict, _global_script_constant_map_data_cache, global_inh_paths)
 
 
+static func test():
+	var t = ALibRuntime.Utils.UProfile.TimeFunction.new("INNER")
+	get_instance()._build_inner_class_map()
+	t.stop()
+	
+	var t2 = ALibRuntime.Utils.UProfile.TimeFunction.new("INNER")
+	get_instance()._build_inner_class_mapU()
+	t2.stop()
+	
+	var t23 = ALibRuntime.Utils.UProfile.TimeFunction.new("INNER")
+	var manager = InnerClassManager.new()
+	manager.build_inner_class_cache()
+	manager.queue_free()
+	t23.stop()
+
+func _build_inner_class_map():
+	var files = UFile.scan_for_files("res://", ["gd"])
+	var count = 0
+	
+	for f in files:
+		count += 1
+		var script = load(f)
+		var parser = _editor_gdscript_parser.get_parser_for_path(f)
+		
+		
+		for inner_class in parser.get_class_object().inner_classes.keys():
+			var class_object = parser.get_class_object(inner_class) as EditorGDScriptParser.GDScriptParser.ParserClass
+			var inner_script = class_object.get_script_resource()
+			inner_script.set_meta(&"outer_path", UString.dot_join(f, class_object.access_path))
+	
+	print(count, " Files Checked")
+
+
+func _build_inner_class_mapU():
+	var files = UFile.scan_for_files("res://", ["gd"])
+	var count = 0
+	
+	for f in files:
+		count += 1
+		var script = load(f)
+		var inner_classes = UClassDetail.script_get_inner_classes(script)
+		
+		for inner_path in inner_classes.keys():
+			var inner_script = inner_classes[inner_path]
+			inner_script.set_meta(&"outer_path", UString.dot_join(f, inner_path))
+	
+	print(count, " Files Checked")
+
+
 class EditorSet:
 	
 	# Custom
@@ -455,3 +488,106 @@ class EditorSet:
 		PRELOADS,
 		OFF
 	}
+
+
+
+class InnerClassManager extends Node:
+
+	const CACHE_PATH = "res://.godot/inner_class_cache.json"
+
+	# In-memory dictionary for instant lookups at runtime
+	var _class_map: Dictionary = {}
+
+	func _ready():
+		_load_cache()
+
+	# Call this manually when you need to rebuild (e.g., in an EditorPlugin or a dev tool)
+	func build_inner_class_cache():
+		print("Building Inner Class Cache...")
+		var new_map = {}
+		var files = _scan_directory("res://", ["gd"])
+		
+		# Compile Regex ONCE. 
+		# (?m) = multiline. ^class\s+ = starts with 'class ' followed by spaces.
+		# ([a-zA-Z0-9_]+) = Capture the class name.
+		var regex = RegEx.new()
+		regex.compile("(?m)^class\\s+([a-zA-Z0-9_]+)")
+		
+		for file_path in files:
+			var script = load(file_path)
+			if not script or not script is GDScript:
+				continue
+				
+			var source = script.source_code
+			var regex_matches = regex.search_all(source)
+			
+			# If the file has no "class X:" declarations, skip entirely
+			if regex_matches.is_empty():
+				continue
+				
+			# Extract the names of classes actually DEFINED in this file
+			var defined_class_names = []
+			for rm in regex_matches:
+				defined_class_names.append(rm.get_string(1))
+				
+			# Now map them using the constant map
+			var constants = script.get_script_constant_map()
+			for const_name in constants:
+				var val = constants[const_name]
+				
+				# Is it a GDScript, has no path, AND was defined in this file?
+				if val is GDScript and val.resource_path == "" and const_name in defined_class_names:
+					# Store a string representation (you can't save object references to JSON)
+					# We use the outer path + "::" + inner name as a unique identifier
+					var full_path = file_path + "::" + const_name
+					new_map[full_path] = true 
+
+		# Save to disk
+		_save_to_disk(new_map)
+		_class_map = new_map
+		print("Cache built! Found ", new_map.size(), " inner classes.")
+
+	# ---------------------------------------------------------
+	# Utilities
+	# ---------------------------------------------------------
+
+	func locate_script(inner_script: GDScript) -> String:
+		# Because inner classes drop from memory, we can't use them directly as dict keys.
+		# But we CAN search our cache for them by checking their outer script properties.
+		# Actually, since we want to find WHERE a script is, we have to match it.
+		
+		# To reverse lookup at runtime:
+		# 1. Get the class name (Godot doesn't store this directly, sadly)
+		# For ultra-fast lookups, you might still need a tiny loop or enforce class names.
+		pass
+		return ""
+
+	func _save_to_disk(data: Dictionary):
+		var file = FileAccess.open(CACHE_PATH, FileAccess.WRITE)
+		if file:
+			file.store_string(JSON.stringify(data, "\t"))
+			file.close()
+
+	func _load_cache():
+		if FileAccess.file_exists(CACHE_PATH):
+			var file = FileAccess.open(CACHE_PATH, FileAccess.READ)
+			var json = JSON.parse_string(file.get_as_text())
+			if typeof(json) == TYPE_DICTIONARY:
+				_class_map = json
+
+	func _scan_directory(path: String, extensions: Array) -> Array:
+		var files = []
+		var dir = DirAccess.open(path)
+		if dir:
+			dir.list_dir_begin()
+			var file_name = dir.get_next()
+			while file_name != "":
+				if dir.current_is_dir():
+					if not file_name.begins_with("."): # Skip hidden dirs like .godot
+						files.append_array(_scan_directory(path + file_name + "/", extensions))
+				else:
+					var ext = file_name.get_extension()
+					if ext in extensions:
+						files.append(path + file_name)
+				file_name = dir.get_next()
+		return files
