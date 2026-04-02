@@ -1,5 +1,7 @@
 extends EditorCodeCompletion.EditorCodeCompletionSingleton.ScriptMetadata.TagParserBase
 
+const EditorGDScriptParser = ALibEditor.Singletons.EditorGDScriptParser
+
 const EditorColors = UtilsRemote.EditorColors
 
 const TAG = &"arg_location"
@@ -231,11 +233,17 @@ func _function_call(caret_context:CaretContext):
 	script_metadata.update_completion_options(function_call_data.get_text_current_arg() == "")
 	return true
 
-
+#^r this needs work to get proper scope. Completion works but the highlighting does not use parser
 func _syntax_highlighting(_script_editor:CodeEdit, current_line_text:String, line_idx:int, comment_tag_idx:int):
-	var parser = script_metadata.get_gdscript_parser()
+	#var parser = script_metadata.get_gdscript_parser()
+	var path = script_metadata.get_current_script().resource_path
+	#print("ARG LOC::", path)
+	var parser = ALibEditor.Singletons.EditorGDScriptParser.get_parser(path)
 	var current_class = parser.get_class_at_line(line_idx)
-	var current_class_obj = parser.get_class_object(current_class)
+	var current_class_obj = parser.get_class_object(current_class) as GDScriptParser.ParserClass
+	if not is_instance_valid(current_class_obj):
+		return {}
+	
 	var current_script = current_class_obj.script_resource
 	var hl_info = {}
 	var current_line_comment = current_line_text.substr(comment_tag_idx)
@@ -282,7 +290,7 @@ func _syntax_highlighting(_script_editor:CodeEdit, current_line_text:String, lin
 			var type_array = [token]
 			if token.contains("."):
 				type_array = token.split(".", false)
-			
+			#print("ARG PARTS::", type_array)
 			var script = current_script
 			for i in range(type_array.size()): # iterate parts in chain to make sure they are a valid chain
 				var part = type_array[i]
@@ -297,6 +305,7 @@ func _syntax_highlighting(_script_editor:CodeEdit, current_line_text:String, lin
 						part_color = _BAD_SYM_COLOR
 				
 				var member_info = UClassDetail.get_member_info_by_path(script, part)
+				#print("ARG::PART::", part, script, member_info)
 				if member_info == null:
 					if i < type_array.size() - 1: # if not at the end, fail color so we know chain is broken
 						SyntaxPlusSingleton.HLInfo.add_color(hl_info, _BAD_SYM_COLOR, current_idx, current_idx + part.length(), _BAD_SYM_COLOR)
