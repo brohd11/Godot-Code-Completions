@@ -259,10 +259,10 @@ func _add_enum_code_completions(access_path:String, enum_members:Array, other_op
 	
 	
 	
-	#if alias == access_path:
-		#alias = ""
-	#if global_path == access_path:
-		#global_path = ""
+	if alias == access_path:
+		alias = ""
+	if global_path == access_path:
+		global_path = ""
 	
 	var one_has_been_added:=false
 	var has_alias = alias != ""
@@ -279,8 +279,8 @@ func _add_enum_code_completions(access_path:String, enum_members:Array, other_op
 	
 	if global_path != "":
 		var global_tag := ""
-		#if one_has_been_added:
-		global_tag = "[global]"
+		if one_has_been_added:
+			global_tag = "[global]"
 		one_has_been_added = true
 		for member in enum_members:
 			var full_name = UString.dot_join(global_path, member)
@@ -290,8 +290,8 @@ func _add_enum_code_completions(access_path:String, enum_members:Array, other_op
 	
 	if alias != "":
 		var alias_tag := ""
-		#if one_has_been_added:
-		alias_tag = "[script alias]"
+		if one_has_been_added:
+			alias_tag = "[script alias]"
 		one_has_been_added = true
 		for member in enum_members:
 			var full_name = UString.dot_join(alias, member)
