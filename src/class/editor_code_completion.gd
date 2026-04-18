@@ -8,7 +8,6 @@ const UtilsRemote = EditorCodeCompletionSingleton.UtilsRemote
 const UClassDetail = UtilsRemote.UClassDetail
 const UString = UtilsRemote.UString
 
-
 const ParserKeys = GDScriptParser.Keys
 
 const TokenState = CaretContext.TokenState
@@ -17,41 +16,12 @@ const GDScriptParser = UtilsRemote.EditorGDScriptParser.GDScriptParser
 const CaretContext = GDScriptParser.CaretContext
 const ScopeState = CaretContext.ScopeState
 
-class Preloads:
-	const TestPreload = preload("res://test_comp.gd")
-
-class Class:
-	const Nest = _ClassLayers.AnotherWrapper.Nest
-
-class _ClassLayers extends NewScript3:
-	class AnotherWrapper extends AnotherTest:
-		class Nest extends Preloads.TestPreload:
-			pass
-		
-			static func ye(yar:String) -> MyNum:
-				return MyNum.YUP
-				pass
-			pass
-	
-	static func test_method():
-		print("YUP TEST")
-		pass
-	
-	pass
-
-static func test_method_base():
-	print("YUP")
-	pass
-
-class Another:
-	pass
-
 var singleton:EditorCodeCompletionSingleton
 
 var editor_theme
 
 ## Holds registered tags to unregister on clean up. Not to be modified.
-var _tags = {}
+var _tags := {}
 
 ## Register plugin to EditorCodeCompletionSingleton and any other singletons it uses.
 static func register_plugin(plugin:EditorPlugin):
@@ -89,7 +59,7 @@ static func register_tag_static(prefix:String, tag:String, location:=TagLocation
 	if not EditorCodeCompletionSingleton.instance_valid():
 		print("EditorCodeCompletionSingleton not instanced yet.")
 		return
-	EditorCodeCompletionSingleton.get_instance().register_tag(prefix, tag, TagLocation.ANY)
+	EditorCodeCompletionSingleton.get_instance().register_tag(prefix, tag, location)
 
 static func unregister_tag_static(prefix:String, tag:String, location:=TagLocation.ANY):
 	if not EditorCodeCompletionSingleton.instance_valid():
@@ -126,8 +96,8 @@ func get_code_edit():
 
 #region CompletionOptions
 
-func get_code_complete_dict(kind:CodeEdit.CodeCompletionKind, display_text, insert_text, icon_name="",
-						default_value=null, location=1024, font_color:Color=Color.LIGHT_GRAY):
+func get_code_complete_dict(kind:CodeEdit.CodeCompletionKind, display_text:String, insert_text:String, icon_name:="",
+						default_value=null, location=1024, font_color:Color=Color.LIGHT_GRAY) -> Dictionary:
 	var icon
 	if icon_name == "":
 		pass
@@ -165,9 +135,6 @@ func update_completion_options(force:=false):
 	current.update_code_completion_options(force)
 
 #endregion
-
-
-
 
 
 func get_gdscript_parser():
@@ -221,3 +188,46 @@ func set_data(key, value):
 
 func get_data(key):
 	return singleton.peristent_cache.get(key)
+
+
+class Helpers:
+	## Pass the full class path before the caret.
+	static func class_completion(code_completion:EditorCodeCompletion, class_path:String):
+		var script_editor = code_completion.get_code_edit()
+		var caret_context = code_completion.get_caret_context()
+		
+		# trim the last Member.Access.[Part] to resolve the current class
+		var expression = UString.trim_member_access_back(class_path)
+		var parser = code_completion.get_gdscript_parser()
+		var resolved = parser.resolve_expression(expression, caret_context.caret_line)
+		if resolved == "" or not resolved.begins_with("res://"): # resolved type is not a valid file
+			var global_classes = UClassDetail.get_all_global_class_paths()
+			for name in global_classes.keys():
+				var dict = code_completion.get_code_complete_dict(CodeEdit.CodeCompletionKind.KIND_CONSTANT, name, name, "Object", null, 2048)
+				code_completion.add_completion_option(script_editor, dict)
+			
+			var current_class_obj = caret_context.get_current_class_object()
+			for c in current_class_obj.get_gdscript_constants():
+				var dict = code_completion.get_code_complete_dict(CodeEdit.CodeCompletionKind.KIND_CONSTANT, c, c, "GDScriptInternal")
+				code_completion.add_completion_option(script_editor, dict)
+			
+		else:
+			var resolve_script_data = UString.get_script_path_and_suffix(resolved)
+			var resolved_script_path = resolve_script_data[0]
+			var resolved_inner_class = resolve_script_data[1]
+			
+			var current_parser = parser.get_parser_for_path(resolved_script_path)
+			var class_obj = current_parser.get_class_object(resolved_inner_class) as GDScriptParser.ParserClass
+			for c in class_obj.get_gdscript_constants():
+				var member_data = class_obj.get_member(c)
+				var access_path = member_data.get(ParserKeys.ACCESS_PATH)
+				#if class_obj.access_path != "": # should be find without
+				if not access_path.begins_with(class_obj.access_path):
+					continue
+				var dict = code_completion.get_code_complete_dict(CodeEdit.CodeCompletionKind.KIND_CONSTANT, c, c, "GDScriptInternal")
+				code_completion.add_completion_option(script_editor, dict)
+		
+		code_completion.update_completion_options()
+	
+	
+	

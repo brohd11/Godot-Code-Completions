@@ -1,6 +1,6 @@
 extends EditorCodeCompletion
 
-#! import-p UClassDetail,
+#! import_p UClassDetail,
 
 const Utils = GDScriptParser.Utils
 

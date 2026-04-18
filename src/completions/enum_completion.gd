@@ -1,6 +1,6 @@
 @tool
 extends EditorCodeCompletion
-#! import-p UString,UClassDetail,Assignment,FuncCall,
+#! import_p UString,UClassDetail
 
 const CacheHelper = EditorCodeCompletionSingleton.CacheHelper
 
@@ -326,7 +326,7 @@ func _get_enum_vars(processed_data:Dictionary) -> Array:
 		#if left.find(".") == -1 or left.begins_with("var "):
 			#if not left.begins_with("var "):
 				#left = "var " + left
-			#var var_data = UString.get_var_name_and_type_hint_in_line(left)
+			#var var_data = UString.get_var_name_and_type_hint_in_line(left) # moved to UString.GDScriptParse
 			#current_assigned = var_data[0]
 	
 	var enum_class_string = processed_data.enum_class

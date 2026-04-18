@@ -1,7 +1,7 @@
 extends SingletonRefCount
 const SingletonRefCount = Singleton.RefCount
 #! remote
-#! import-p UString,UClassDetail,
+#! import_p UString,UClassDetail,
 
 const PE_STRIP_CAST_SCRIPT = preload("res://addons/code_completions/src/class/editor_code_completion_singleton.gd")
 
@@ -269,11 +269,11 @@ func _on_code_completion_requested() -> void:
 	
 	var t = TimeFunction.new("MAIN CONTEXT")
 	_caret_context = _editor_gdscript_parser.get_caret_context()
-	t.stop()
+	#t.stop()
 	for editor_code_completion in code_completions.keys():
 		var t2 = TimeFunction.new(str(editor_code_completion.get_script().resource_path.get_file()))
 		var handled = editor_code_completion._on_code_completion_requested(script_editor)
-		t2.stop()
+		#t2.stop()
 		if handled:
 			_reset_caret_context()
 			return
@@ -490,7 +490,7 @@ class EditorSet:
 	}
 
 
-
+#^r think this can be deleted
 class InnerClassManager extends Node:
 
 	const CACHE_PATH = "res://.godot/inner_class_cache.json"

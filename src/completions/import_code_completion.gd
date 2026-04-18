@@ -1,15 +1,19 @@
 extends EditorCodeCompletion
 
-#! import-show-global 
-#! import-g SyntaxPlusSingleton,
-#! import-p UClassDetail,UString,
+#! import_show_global 
+#! import_g SyntaxPlusSingleton,
+#! import_p UClassDetail,UString,Settings,
+
+
+const HLInfo = SyntaxPlusSingleton.HLInfo
 
 #^ import hints
-const _IMPORT_SHOW_GLOBAL = "import-show-global"
-const _IMPORT_SHOW_GLOBAL_ALL = "import-show-global-all"
-const _IMPORT_PRELOADS = "import-preloads"
-const _IMPORT_P = "import-p"
-const _IMPORT_G = "import-g"
+const PREFIX = "#!"
+const _IMPORT_SHOW_GLOBAL = "import_show_global"
+const _IMPORT_SHOW_GLOBAL_ALL = "import_show_global_all"
+const _IMPORT_PRELOADS = "import_preloads"
+const _IMPORT_P = "import_p"
+const _IMPORT_G = "import_g"
 
 #^ keys
 const IMPORT_MEMBERS_CURRENT = &"import_members_current"
@@ -44,7 +48,7 @@ var hide_private_members = false
 var completion_cache:Dictionary = {}
 
 const _COMMENT_TAGS = {
-	"#!": {
+	PREFIX: {
 		_IMPORT_PRELOADS:null,
 		_IMPORT_SHOW_GLOBAL:"_import_syntax_hl",
 		_IMPORT_SHOW_GLOBAL_ALL:"_import_syntax_hl",
@@ -405,7 +409,7 @@ func _get_script_imports():
 		var line = script_editor.get_line(i)
 		if not line.begins_with("#! import"):
 			continue
-		var hint = line.get_slice("#!", 1).strip_edges().get_slice(" ", 0).strip_edges()
+		var hint = line.get_slice(PREFIX, 1).strip_edges().get_slice(" ", 0).strip_edges()
 		if hint == _IMPORT_SHOW_GLOBAL_ALL:
 			import_hints[_IMPORT_SHOW_GLOBAL_ALL] = true
 		elif hint == _IMPORT_PRELOADS:
@@ -498,38 +502,40 @@ func _get_global_and_preloads():
 
 
 func _import_syntax_hl(script_editor:CodeEdit, current_line_text:String, line:int, comment_tag_idx:int):
+	var sp_ins = SyntaxPlusSingleton.get_instance()
 	var hl_info = {}
-	var default_tag_color = SyntaxPlusSingleton.get_instance().DEFAULT_TAG_COLOR
-	var comment_color = SyntaxPlusSingleton.get_instance().comment_color
+	var global_class_color = sp_ins.user_type_color
+	var preload_class_color = sp_ins.global_function_color
+	var symbol_color = sp_ins.symbol_color
+	
+	var comment_text = current_line_text.substr(comment_tag_idx)
+	
+	hl_info.merge(HLInfo.highlight_prefix(PREFIX, comment_text))
 	
 	var current_line_length = current_line_text.length()
 	var substr = current_line_text.substr(comment_tag_idx + 2).strip_edges()
 	var hint = substr.get_slice(" ", 0).strip_edges()
 	
+	print(hint)
+	
 	var show_global_hint = hint == _IMPORT_SHOW_GLOBAL
 	var show_global_all_hint = hint == _IMPORT_SHOW_GLOBAL_ALL
 	if not hide_global_classes_setting and (show_global_hint or show_global_all_hint):
-		hl_info[0] = SyntaxPlusSingleton.get_hl_info_dict(Color.FIREBRICK)
-		hl_info[hint.length() + 1] = SyntaxPlusSingleton.get_hl_info_dict(comment_color)
+		hl_info.merge(HLInfo.highlight_tag(hint, comment_text, Color.FIREBRICK))
 		return hl_info
 	elif hide_global_classes_setting and show_global_all_hint:
-		hl_info[0] = SyntaxPlusSingleton.get_hl_info_dict(default_tag_color)
-		hl_info[hint.length() + 1] = SyntaxPlusSingleton.get_hl_info_dict(comment_color)
+		hl_info.merge(HLInfo.highlight_tag(hint, comment_text))
 		return hl_info
-	
+	print(_IMPORT_G)
 	var global_hint = hint == _IMPORT_G
 	var preload_hint = hint == _IMPORT_P
 	if not (global_hint or preload_hint or show_global_hint):
 		return hl_info #^ empty
 	
-	var global_class_color = SyntaxPlusSingleton.get_instance().user_type_color
-	var preload_class_color = SyntaxPlusSingleton.get_instance().global_function_color
 	
-	var symbol_color = SyntaxPlusSingleton.get_instance().symbol_color
 	
 	var current_classes = _get_current_classes_of_hint(hint, script_editor)
-	hl_info[0] = SyntaxPlusSingleton.get_hl_info_dict(default_tag_color)
-	hl_info[hint.length() + 1] = SyntaxPlusSingleton.get_hl_info_dict(comment_color)
+	hl_info.merge(HLInfo.highlight_tag(hint, comment_text))
 	
 	var in_scope_class_names:Array
 	var class_color:Color
@@ -539,7 +545,7 @@ func _import_syntax_hl(script_editor:CodeEdit, current_line_text:String, line:in
 		class_color = global_class_color
 	elif preload_hint:
 		var current_script = get_current_script()
-		var preloads = UClassDetail.script_get_preloads(current_script, true)
+		var preloads = UClassDetail.script_get_preloads(current_script, true, true)
 		in_scope_class_names = preloads.keys()
 		class_color = preload_class_color
 	
@@ -548,15 +554,16 @@ func _import_syntax_hl(script_editor:CodeEdit, current_line_text:String, line:in
 			var hl_color = class_color
 			if extended_class_names.has(_class_name) and not show_global_hint: #^ show global hint to allow showing self
 				hl_color = Color.FIREBRICK
-			var idx = UString.find_indentifier_in_line(substr, _class_name)
+			var idx = UString.find_indentifier_in_line(comment_text, _class_name)
 			if idx == -1:
 				continue
 			
-			hl_info[idx] = SyntaxPlusSingleton.get_hl_info_dict(hl_color)
-			var comma_idx = substr.find(",", idx)
+			hl_info[idx] = HLInfo.get_color_dict(hl_color)
+			var comma_idx = comment_text.find(",", idx)
 			if comma_idx != -1:
-				hl_info[comma_idx] = SyntaxPlusSingleton.get_hl_info_dict(symbol_color)
-				hl_info[comma_idx + 1] = SyntaxPlusSingleton.get_hl_info_dict(comment_color)
+				HLInfo.add_color(hl_info, symbol_color, comma_idx, comma_idx + 1)
+				#hl_info[comma_idx] = SyntaxPlusSingleton.get_hl_info_dict(symbol_color)
+				#hl_info[comma_idx + 1] = SyntaxPlusSingleton.get_hl_info_dict(comment_color)
 	
 	return hl_info
 
@@ -568,7 +575,7 @@ func _get_current_classes_of_hint(hint:String, script_editor:CodeEdit):
 		if not i < line_count:
 			break
 		var line = script_editor.get_line(i)
-		if not line.begins_with("#!"):
+		if not line.begins_with(PREFIX):
 			continue
 		if not line.find(hint) > -1:
 			continue
@@ -616,7 +623,7 @@ func _import_hint_autocomplete(current_line_text:String):
 	elif current_line_text.begins_with(full_p_hint):
 		var current_classes = _get_current_classes_of_hint(full_p_hint, script_editor)
 		var current_script = get_current_script()
-		var preloads = UClassDetail.script_get_preloads(current_script, true)
+		var preloads = UClassDetail.script_get_preloads(current_script, true, true) #^ this may want to be changed a bit, doesn't need a deep search, also above in highlighting
 		for _name in preloads.keys():
 			if _name.find(".") > -1:
 				continue

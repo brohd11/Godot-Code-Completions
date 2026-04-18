@@ -1,7 +1,7 @@
 extends EditorCodeCompletion
 
 
-#! import-p UClassDetail,
+#! import_p UClassDetail,
 const UFile = preload("res://addons/addon_lib/brohd/alib_runtime/utils/u_file.gd")
 
 func _get_completion_settings() -> Dictionary:
