@@ -199,7 +199,7 @@ class Helpers:
 		# trim the last Member.Access.[Part] to resolve the current class
 		var expression = UString.trim_member_access_back(class_path)
 		var parser = code_completion.get_gdscript_parser()
-		var resolved = parser.resolve_expression(expression, caret_context.caret_line)
+		var resolved = parser.resolve_expression_to_type(expression, caret_context.caret_line)
 		if resolved == "" or not resolved.begins_with("res://"): # resolved type is not a valid file
 			var global_classes = UClassDetail.get_all_global_class_paths()
 			for name in global_classes.keys():

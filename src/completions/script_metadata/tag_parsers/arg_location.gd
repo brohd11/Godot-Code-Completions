@@ -129,7 +129,7 @@ func _function_call(caret_context:CaretContext):
 		return false
 	
 	# resolve the type of the target class in the function script
-	var resolved_target_type = function_script_parser.resolve_expression(declared_target_class, func_class_obj.line_indexes[0])
+	var resolved_target_type = function_script_parser.resolve_expression_to_type(declared_target_class, func_class_obj.line_indexes[0])
 	if not resolved_target_type.begins_with("res://"):
 		return false # not a script, nothing we can do
 	

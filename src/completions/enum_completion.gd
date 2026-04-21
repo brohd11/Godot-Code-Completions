@@ -223,7 +223,7 @@ func _add_custom_enum_members(script_data:Dictionary):
 	print_deb(T.ACCESS_PATH, "STANDARD", access_options.standard)
 	print_deb(T.ACCESS_PATH, "SCRIPT ALIAS", access_options.script_alias)
 	print_deb(T.ACCESS_PATH, "GLOBAL NAME", access_options.global)
-
+	
 	
 	for e in enum_members:
 		if access_options.standard.begins_with("self."):
@@ -235,7 +235,7 @@ func _add_custom_enum_members(script_data:Dictionary):
 		#if access_options.global.ends_with(e) and e != enum_name:
 			#access_options.global = access_options.global.trim_suffix(e).trim_suffix(".")
 	
-	var resolved = gdscript_parser.resolve_expression(access_options.standard, get_caret_context().caret_line)
+	var resolved = gdscript_parser.resolve_expression_to_type(access_options.standard, get_caret_context().caret_line)
 	if not resolved.ends_with(enum_name + ENUM_SUFFIX):
 		access_options.standard = ""
 	print("ENUM RES CHECK",  resolved)

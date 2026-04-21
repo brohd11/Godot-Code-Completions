@@ -108,7 +108,7 @@ func _get_current_class_completion_options(class_obj:GDScriptParser.ParserClass)
 		if member_type == GDScriptParser.Keys.MEMBER_TYPE_ENUM:
 			_add_dict_entry(options, c, true)
 		else:
-			var type = parser.resolve_expression(c)
+			var type = parser.resolve_expression_to_type(c)
 			if type.ends_with(GDScriptParser.Keys.ENUM_PATH_SUFFIX):
 				_add_dict_entry(options, c, true)
 			elif type.begins_with("res://"):
