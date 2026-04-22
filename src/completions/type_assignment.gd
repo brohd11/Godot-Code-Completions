@@ -47,9 +47,10 @@ func _on_code_completion_requested(script_editor:CodeEdit) -> bool:
 	var options:Dictionary
 	if class_script == current_script:
 		#return false # in 4.6 this is still necessary for "as"
-		var t = ALibRuntime.Utils.UProfile.TimeFunction.new("TYPE::TIME")
+		
+		#var t = ALibRuntime.Utils.UProfile.TimeFunction.new("TYPE::TIME")
 		options = _get_current_class_completion_options(class_obj)
-		t.stop()
+		#t.stop()
 	else:
 		options = _get_valid_constants_from_script(class_script)
 	

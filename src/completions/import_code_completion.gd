@@ -99,7 +99,7 @@ func _set_settings():
 	_on_editor_script_changed(null)
 
 
-func _on_editor_script_changed(script):
+func _on_editor_script_changed(_script):
 	editor_theme = EditorInterface.get_editor_theme()
 	_get_script_imports.call_deferred()
 	_get_global_and_preloads.call_deferred()
@@ -266,7 +266,7 @@ func _get_property_options(script:GDScript, access_name:String):
 			continue
 		if hide_private_members and p.begins_with("_"):
 			continue
-		var data = properties.get(p)
+		#var data = properties.get(p)
 		var cc_nm = access_name + "." + p if access_name != "" else p
 		cc_options[cc_nm] = get_code_complete_dict(CodeEdit.CodeCompletionKind.KIND_MEMBER,cc_nm,cc_nm,"property")
 	return cc_options
@@ -360,6 +360,7 @@ func _get_class_new_method(script:GDScript, access_name:String, methods=null):
 		new_call_ins = access_name + ".new("
 	cc_options[new_call] = get_code_complete_dict(CodeEdit.CodeCompletionKind.KIND_FUNCTION,new_call,new_call_ins,"constructor")
 	return cc_options
+
 
 func _get_signal_options(script:GDScript, access_name:String):
 	var signals = UClassDetail.script_get_all_signals(script)
@@ -501,7 +502,7 @@ func _get_global_and_preloads():
 			extended_class_names[global_paths[path]] = true
 
 
-func _import_syntax_hl(script_editor:CodeEdit, current_line_text:String, line:int, comment_tag_idx:int):
+func _import_syntax_hl(script_editor:CodeEdit, current_line_text:String, _line:int, comment_tag_idx:int):
 	var sp_ins = SyntaxPlusSingleton.get_instance()
 	var hl_info = {}
 	var global_class_color = sp_ins.user_type_color
@@ -509,14 +510,10 @@ func _import_syntax_hl(script_editor:CodeEdit, current_line_text:String, line:in
 	var symbol_color = sp_ins.symbol_color
 	
 	var comment_text = current_line_text.substr(comment_tag_idx)
-	
 	hl_info.merge(HLInfo.highlight_prefix(PREFIX, comment_text))
 	
-	var current_line_length = current_line_text.length()
 	var substr = current_line_text.substr(comment_tag_idx + 2).strip_edges()
 	var hint = substr.get_slice(" ", 0).strip_edges()
-	
-	print(hint)
 	
 	var show_global_hint = hint == _IMPORT_SHOW_GLOBAL
 	var show_global_all_hint = hint == _IMPORT_SHOW_GLOBAL_ALL
@@ -526,13 +523,11 @@ func _import_syntax_hl(script_editor:CodeEdit, current_line_text:String, line:in
 	elif hide_global_classes_setting and show_global_all_hint:
 		hl_info.merge(HLInfo.highlight_tag(hint, comment_text))
 		return hl_info
-	print(_IMPORT_G)
+	
 	var global_hint = hint == _IMPORT_G
 	var preload_hint = hint == _IMPORT_P
 	if not (global_hint or preload_hint or show_global_hint):
 		return hl_info #^ empty
-	
-	
 	
 	var current_classes = _get_current_classes_of_hint(hint, script_editor)
 	hl_info.merge(HLInfo.highlight_tag(hint, comment_text))
@@ -540,8 +535,8 @@ func _import_syntax_hl(script_editor:CodeEdit, current_line_text:String, line:in
 	var in_scope_class_names:Array
 	var class_color:Color
 	if global_hint or show_global_hint:
-		var global_classes = UClassDetail.get_all_global_class_paths()
-		in_scope_class_names = global_classes.keys()
+		var global_class_paths = UClassDetail.get_all_global_class_paths()
+		in_scope_class_names = global_class_paths.keys()
 		class_color = global_class_color
 	elif preload_hint:
 		var current_script = get_current_script()
@@ -554,7 +549,7 @@ func _import_syntax_hl(script_editor:CodeEdit, current_line_text:String, line:in
 			var hl_color = class_color
 			if extended_class_names.has(_class_name) and not show_global_hint: #^ show global hint to allow showing self
 				hl_color = Color.FIREBRICK
-			var idx = UString.find_indentifier_in_line(comment_text, _class_name)
+			var idx = find_indentifier_in_line(comment_text, _class_name)
 			if idx == -1:
 				continue
 			
@@ -633,6 +628,20 @@ func _import_hint_autocomplete(current_line_text:String):
 			options.append(completion)
 	
 	return options
+
+
+static func find_indentifier_in_line(line_text:String, identifier:String) -> int:
+	var line_length = line_text.length()
+	var idx = line_text.find(identifier)
+	var i = idx + identifier.length()
+	while idx != -1 and i < line_length:
+		var next_char = line_text[i]
+		var full_id:String = identifier + next_char
+		if not full_id.is_valid_ascii_identifier():
+			break
+		idx = line_text.find(identifier, idx + 1)
+		i = idx + identifier.length()
+	return idx
 
 
 const _SKIP_KEYWORDS = {

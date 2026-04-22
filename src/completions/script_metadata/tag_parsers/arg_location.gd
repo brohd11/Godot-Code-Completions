@@ -163,6 +163,9 @@ func _function_call(caret_context:CaretContext):
 	#print("PATH TO ", path_to_options.standard)
 	#print("PATH TO ", path_to_options.script_alias)
 	#print("PATH TO ", path_to_options.global)
+	#AnotherTest.test_arg(AnotherTest.TestArg.ARG)
+	#AnotherTest.TestArg.test_args(AnotherTest.TestArg.ARG, AnotherTest.Nest.MY_STRING)
+	
 	
 	var valid_classes = []
 	var deep_search = "d" in target_args or "deep" in target_args
@@ -250,20 +253,21 @@ func _syntax_highlighting(_script_editor:CodeEdit, current_line_text:String, lin
 				continue
 			else: # anything that isn't ',' or preceded by is a new statement
 				in_arg = false
-		
+		#print(token, "::",tags_in_line)
 		if token in tags_in_line: # if already declared, fail color
 			var color = _BAD_SYM_COLOR
 			if not token in completed_tags:
 				completed_tags.append(token)
 				color = _text_color
 			HLInfo.add_color(hl_info, color, adj_idx, adj_idx + token.length(), _sym_color)
+			
 		elif token == "-":
 			in_arg = true
 			HLInfo.add_color(hl_info, _sym_color, adj_idx, adj_idx + token.length(), _comment_color, false)
 		elif token == ":":
 			continue
 		else:
-			hl_info.merge(HLInfo.check_const_path(token, current_script, adj_idx))
+			hl_info.merge(HLInfo.check_const_path(token, current_class_obj.get_script_class_path(), adj_idx))
 	
 	return hl_info
 
@@ -284,6 +288,11 @@ func test_method(my_setting:String, test_2:String, another:String, one_more:Stri
 	pass
 
 class Dart:
+	
+	func another():
+		test_nest(Nested.ANOTHER_VAL)
+		pass
+	
 	#! arg_location my_string:Nested
 	static func test_nest(my_string:String):
 		pass

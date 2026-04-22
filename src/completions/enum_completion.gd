@@ -10,17 +10,16 @@ var enum_enable:= false
 var show_member_suggestions:= false
 var show_alias_only:=false
 
-var data_cache = {}
+#var data_cache = {}
 
-var completion_cache = {}
+#var completion_cache = {}
 
-var access_object:CaretContext.AccessObject
-var function_access_object:CaretContext.AccessObject
-var function_object:String
-var argument_access_object:CaretContext.AccessObject
+#var access_object:CaretContext.AccessObject
+#var function_access_object:CaretContext.AccessObject
+#var function_object:String
+#var argument_access_object:CaretContext.AccessObject
 
 var comp_object
-
 
 
 func _singleton_ready():
@@ -68,7 +67,8 @@ func _on_code_completion_requested(_script_editor:CodeEdit) -> bool:
 func _operator(caret_context:CaretContext):
 	var op_data = caret_context.get_operation_data()
 	comp_object = op_data
-	print("ENUM OP::", op_data.left_symbol_data.type)
+	
+	print_deb(T.ENUM, "OPERATOR", op_data.left_symbol_data.type)
 	return _process_identifier(op_data.left_symbol_data.type)
 
 func _match_branch(caret_context:CaretContext):
@@ -90,7 +90,8 @@ func _function_call(caret_context:CaretContext):
 	var func_data = caret_context.get_function_call_data()
 	var current_arg = func_data.func_get_current_arg()
 	comp_object = func_data
-	print("ENUM FUNC::", current_arg.type)
+	
+	print_deb(T.ENUM, "FUNC", current_arg.type)
 	return _process_identifier(current_arg.type)
 
 
@@ -160,17 +161,10 @@ func _add_builtin_enum_code_completions(access_path:String, enum_members:Array, 
 	script_editor.update_code_completion_options(force_update)
 	return true
 
-
-
-
-
-
-
 #endregion
 
 
 #region Script Enums
-
 
 func _process_script_enum(enum_path:String, force:=false):
 	if not enum_path.ends_with(ENUM_SUFFIX):
@@ -210,20 +204,17 @@ func _add_custom_enum_members(script_data:Dictionary):
 	
 	var gdscript_parser = get_gdscript_parser()
 	var enum_script_parser = gdscript_parser.get_parser_for_path(enum_main_script_path)
-	
 	var enum_class_obj = enum_script_parser.get_class_object(enum_access) as GDScriptParser.ParserClass
 	var enum_members = enum_class_obj.get_enum_members(enum_name)
-	
 	if enum_members == null:
 		return false
 	
 	var access_options = comp_object.get_type_access_path()
-	print_deb(T.ACCESS_PATH, "ACCESS", access_options)
 	
+	print_deb(T.ACCESS_PATH, "ACCESS", access_options)
 	print_deb(T.ACCESS_PATH, "STANDARD", access_options.standard)
 	print_deb(T.ACCESS_PATH, "SCRIPT ALIAS", access_options.script_alias)
 	print_deb(T.ACCESS_PATH, "GLOBAL NAME", access_options.global)
-	
 	
 	for e in enum_members:
 		if access_options.standard.begins_with("self."):
@@ -238,15 +229,11 @@ func _add_custom_enum_members(script_data:Dictionary):
 	var resolved = gdscript_parser.resolve_expression_to_type(access_options.standard, get_caret_context().caret_line)
 	if not resolved.ends_with(enum_name + ENUM_SUFFIX):
 		access_options.standard = ""
-	print("ENUM RES CHECK",  resolved)
-	
+		print_deb(T.ACCESS_PATH, "ENUM RES CHECK", resolved)
 	
 	return _add_enum_code_completions(access_options.standard, enum_members.keys(), [], force, access_options.script_alias, access_options.global)
 
 #endregion
-
-
-
 
 
 ## Access path is a path of classes ie. SomeClass.MyEnum, to access the enum member.
@@ -256,26 +243,21 @@ func _add_enum_code_completions(access_path:String, enum_members:Array, other_op
 	if enum_members.is_empty():
 		return false
 	
-	
-	
-	
 	if alias == access_path:
 		alias = ""
 	if global_path == access_path:
 		global_path = ""
 	
 	var one_has_been_added:=false
-	var has_alias = alias != ""
+	#var has_alias = alias != ""
 	
 	var enum_icon = EditorInterface.get_editor_theme().get_icon("Enum", "EditorIcons")
-	print(has_alias)
 	if access_path != "":
 		#if has_alias and not show_alias_only:
 		for member in enum_members: # TODO options can be added via inherited method
 			one_has_been_added = true
 			var full_name = UString.dot_join(access_path, member)
 			script_editor.add_code_completion_option(CodeEdit.KIND_ENUM, full_name, full_name, Color.GRAY, enum_icon)
-	
 	
 	if global_path != "":
 		var global_tag := ""
@@ -286,7 +268,6 @@ func _add_enum_code_completions(access_path:String, enum_members:Array, other_op
 			var full_name = UString.dot_join(global_path, member)
 			var display_name = full_name + global_tag
 			script_editor.add_code_completion_option(CodeEdit.KIND_ENUM, display_name, full_name, Color.GRAY, enum_icon, null, 2048)
-	
 	
 	if alias != "":
 		var alias_tag := ""
@@ -305,10 +286,7 @@ func _add_enum_code_completions(access_path:String, enum_members:Array, other_op
 			script_editor.add_code_completion_option(CodeEdit.KIND_VARIABLE, option, option, Color.GRAY, prop_icon)
 	
 	script_editor.update_code_completion_options(force_update)
-	
 	return true
-
-
 
 
 
@@ -410,13 +388,14 @@ static func print_deb(section:String, ...msg:Array):
 		ALibEditor.PrintDebug.print(msg)
 
 const _PRINT = [
-	T.ACCESS_PATH, 
-	T.OBJECT_DATA,
-	T.BUILT_IN
+	#T.ACCESS_PATH, 
+	#T.OBJECT_DATA,
+	#T.BUILT_IN
 	]
 
 
 class T:
+	const ENUM = "ENUM"
 	const BUILT_IN = "BUILT_IN"
 	const OBJECT_DATA = "OBJECT_DATA"
 	const ACCESS_PATH = "ENUM ACCESS PATH"

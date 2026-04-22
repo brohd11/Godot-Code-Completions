@@ -119,7 +119,7 @@ func _ready() -> void:
 	
 	call_on_ready(_init_plugins)
 	_build_global_script_constant_map()
-	_editor_gdscript_parser = EditorGDScriptParser.get_instance().get_parser()
+	_editor_gdscript_parser = EditorGDScriptParser.get_parser()
 
 func _singleton_init():
 	_clear_cache()
@@ -430,7 +430,7 @@ func _build_inner_class_map():
 	
 	for f in files:
 		count += 1
-		var script = load(f)
+		#var script = load(f)
 		var parser = _editor_gdscript_parser.get_parser_for_path(f)
 		
 		
