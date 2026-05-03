@@ -5,7 +5,7 @@ const CacheHelper = preload("res://addons/addon_lib/brohd/alib_runtime/cache_hel
 const TagParserBase = preload("res://addons/code_completions/src/completions/script_metadata/tag_parsers/base/tag_parser_base.gd")
 
 const ArgLocation = preload("res://addons/code_completions/src/completions/script_metadata/tag_parsers/arg_location.gd")
-
+const StructDict = preload("res://addons/code_completions/src/completions/script_metadata/tag_parsers/struct_dict.gd")
 
 var parsers:Dictionary[String, TagParserBase] = {}
 
@@ -19,7 +19,8 @@ func _singleton_ready() -> void:
 
 func _instance_parsers():
 	var parser_array = [
-		ArgLocation
+		ArgLocation,
+		StructDict
 	]
 	for p in parser_array:
 		var ins = p.new()
@@ -56,6 +57,7 @@ func get_script_metadata(path:String):
 		#if cached_data != null:
 			#return cached_data
 	
+	print("GET SCRTIP META::", path)
 	var parser:GDScriptParser = get_gdscript_parser()
 	if is_current_script:
 		parser = get_gdscript_parser()
@@ -81,7 +83,8 @@ func parse_script_metadata(gdscript_parser: GDScriptParser) -> Dictionary:
 		member_regex = RegEx.new()
 		member_regex.compile("^\\s*(?:@[a-zA-Z0-9_]+(?:\\([^)]*\\))?\\s*)*(?:static\\s+)?(?<type>func|var|const|signal|class)\\s+(?<name>\\w+)")
 	
-	
+	#if not gdscript_parser:
+		#return {}
 	var code_edit_parser = gdscript_parser.code_edit_parser
 	
 	# pending_tags format: {"tag_name": "args string"}

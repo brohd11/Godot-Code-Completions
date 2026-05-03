@@ -93,12 +93,13 @@ func _function_call(caret_context:CaretContext):
 	if not function_full_script.begins_with("res://"):
 		return false
 	
-	var script_data = UString.get_script_path_and_suffix(function_full_script)
+	#var script_data = UString.get_script_path_and_suffix(function_full_script)
+	var script_data = GDScriptParser.Utils.type_path_get_script_data(function_full_script)
 	var function_script_path = script_data[0]
 	var function_class_path = script_data[1]
 	
 	# check for metadata in the script where func is being called
-	var metadata = get_arg_location_metadata(function_script_path)
+	var metadata = _get_tag_metadata(TAG, function_script_path)
 	if metadata == null:
 		return false
 	
@@ -133,7 +134,9 @@ func _function_call(caret_context:CaretContext):
 	if not resolved_target_type.begins_with("res://"):
 		return false # not a script, nothing we can do
 	
-	var resolved_script_data = UString.get_script_path_and_suffix(resolved_target_type)
+	
+	#var resolved_script_data = UString.get_script_path_and_suffix(resolved_target_type)
+	var resolved_script_data = GDScriptParser.Utils.type_path_get_script_data(resolved_target_type)
 	var target_script_path = resolved_script_data[0]
 	var target_script_class_path = resolved_script_data[1]
 	
@@ -163,7 +166,8 @@ func _function_call(caret_context:CaretContext):
 	#print("PATH TO ", path_to_options.standard)
 	#print("PATH TO ", path_to_options.script_alias)
 	#print("PATH TO ", path_to_options.global)
-	#AnotherTest.test_arg(AnotherTest.TestArg.ARG)
+	
+	#AnotherTest.test_arg(AnotherTest.TestArg.TEST)
 	#AnotherTest.TestArg.test_args(AnotherTest.TestArg.ARG, AnotherTest.Nest.MY_STRING)
 	
 	
@@ -193,7 +197,10 @@ func _function_call(caret_context:CaretContext):
 				# check type is string, this could be done differently. Could use the argument type to determine what they should be
 				# also could just not do it, and list all, not sure. In a class that is just strings this will be quick, if you have a bunch of preloads it could be slow
 				var type = valid_class.get_member_type(c)
-				if type != "String" and type != "StringName":
+				var type_string = GDScriptParser.Utils.type_path_get_type(type)
+				if type_string == "":
+					type_string = type
+				if type_string != "String" and type_string != "StringName":
 					continue
 				
 				# trim the target class from the access path, this should be provided by the path_to_type
@@ -270,13 +277,6 @@ func _syntax_highlighting(_script_editor:CodeEdit, current_line_text:String, lin
 			hl_info.merge(HLInfo.check_const_path(token, current_class_obj.get_script_class_path(), adj_idx))
 	
 	return hl_info
-
-
-func get_arg_location_metadata(path:=""):
-	if path == "":
-		path = script_metadata.get_current_script().resource_path
-	var meta = script_metadata.get_script_metadata(path)
-	return meta.get(TAG)
 
 
 

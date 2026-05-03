@@ -179,16 +179,25 @@ func _process_script_enum(enum_path:String, force:=false):
 	return _add_custom_enum_members(script_data)
 
 func get_enum_script_data(class_path:String):
-	var path_data = split_path(class_path)
-	if path_data.is_empty():
-		return {}
-	var script_path = path_data[0]
-	var suffix = path_data[1]
-	var enum_access = ""
-	var enum_name = suffix
-	if suffix.find(".") > -1:
-		enum_name = UString.get_member_access_back(suffix)
-		enum_access = UString.trim_member_access_back(suffix)
+	
+	var enum_class_path = GDScriptParser.Utils.type_path_get_non_member(class_path)
+	var script_data = split_path(enum_class_path)
+	var script_path = script_data[0]
+	var enum_access = script_data[1]
+	var enum_name = GDScriptParser.Utils.type_path_get_member(class_path)
+	
+	
+	#var path_data = split_path(class_path) # need to fix this probably
+	#print(class_path)
+	#if path_data.is_empty():
+		#return {}
+	#var script_path = path_data[0]
+	#var suffix = path_data[1]
+	#var enum_access = ""
+	#var enum_name = suffix
+	#if suffix.find(".") > -1:
+		#enum_name = UString.get_member_access_back(suffix)
+		#enum_access = UString.trim_member_access_back(suffix)
 	
 	return {"enum_full_path": class_path, "enum_script_path": script_path, "enum_access":enum_access, "enum_name":enum_name}
 
@@ -205,6 +214,7 @@ func _add_custom_enum_members(script_data:Dictionary):
 	var gdscript_parser = get_gdscript_parser()
 	var enum_script_parser = gdscript_parser.get_parser_for_path(enum_main_script_path)
 	var enum_class_obj = enum_script_parser.get_class_object(enum_access) as GDScriptParser.ParserClass
+	print("ENUM MAIN SCRIPT::", enum_main_script_path, "::CLASS::", enum_class_obj.get_name(), "::", enum_name)
 	var enum_members = enum_class_obj.get_enum_members(enum_name)
 	if enum_members == null:
 		return false
@@ -388,7 +398,7 @@ static func print_deb(section:String, ...msg:Array):
 		ALibEditor.PrintDebug.print(msg)
 
 const _PRINT = [
-	#T.ACCESS_PATH, 
+	T.ACCESS_PATH, 
 	#T.OBJECT_DATA,
 	#T.BUILT_IN
 	]

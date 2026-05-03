@@ -18,7 +18,7 @@ const ScopeState = CaretContext.ScopeState
 
 var singleton:EditorCodeCompletionSingleton
 
-var editor_theme
+var editor_theme:Theme
 
 ## Holds registered tags to unregister on clean up. Not to be modified.
 var _tags := {}
@@ -97,24 +97,27 @@ func get_code_edit():
 #region CompletionOptions
 
 func get_code_complete_dict(kind:CodeEdit.CodeCompletionKind, display_text:String, insert_text:String, icon_name:="",
-						default_value=null, location=1024, font_color:Color=Color.LIGHT_GRAY) -> Dictionary:
+						default_value=null, location=1024, font_color:=Helpers.Colors.DEFAULT_COMPLETION) -> Dictionary:
 	var icon
 	if icon_name == "":
 		pass
 	elif icon_name == "constructor":
-		icon = editor_theme.get_icon("MemberConstructor", "EditorIcons")
+		icon = editor_theme.get_icon(&"MemberConstructor", &"EditorIcons")
 	elif icon_name == "const":
-		icon = editor_theme.get_icon("MemberConstant", "EditorIcons")
+		icon = editor_theme.get_icon(&"MemberConstant", &"EditorIcons")
 	elif icon_name == "property":
-		icon = editor_theme.get_icon("MemberProperty", "EditorIcons")
+		icon = editor_theme.get_icon(&"MemberProperty", &"EditorIcons")
 	elif icon_name == "signal":
-		icon = editor_theme.get_icon("MemberSignal", "EditorIcons")
+		icon = editor_theme.get_icon(&"MemberSignal", &"EditorIcons")
 	elif icon_name == "method":
-		icon = editor_theme.get_icon("MemberMethod", "EditorIcons")
+		icon = editor_theme.get_icon(&"MemberMethod", &"EditorIcons")
 	elif icon_name == "enum":
-		icon = editor_theme.get_icon("Enum", "EditorIcons")
+		icon = editor_theme.get_icon(&"Enum", &"EditorIcons")
 	else:
-		icon = editor_theme.get_icon(icon_name, "EditorIcons")
+		if editor_theme.has_icon(icon_name, &"EditorIcons"):
+			icon = editor_theme.get_icon(icon_name, &"EditorIcons")
+		else:
+			icon = editor_theme.get_icon(&"Object", &"EditorIcons")
 	return {
 		"kind":kind,
 		"display_text":display_text,
@@ -191,10 +194,26 @@ func get_data(key):
 
 
 class Helpers:
+	class Colors:
+		const DEFAULT_COMPLETION = Color(1,1,1,0.75)
+		const AXIS_X = Color(0.96, 0.2, 0.32, 1.0)
+		const AXIS_Y = Color(0.53, 0.84, 0.01, 1.0)
+		const AXIS_Z = Color(0.16, 0.55, 0.96, 1.0)
+		const AXIS_W = Color(0.55, 0.55, 0.55, 1.0)
+	
+	const DOTS_UNICODE = "(\u2026)"
+	
 	## Pass the full class path before the caret.
-	static func class_completion(code_completion:EditorCodeCompletion, class_path:String):
+	static func class_completion(code_completion:EditorCodeCompletion, class_path:String, include_built_ins:=false):
 		var script_editor = code_completion.get_code_edit()
 		var caret_context = code_completion.get_caret_context()
+		
+		if include_built_ins and not class_path.contains("."):
+			var built_ins = GDScriptParser.BuiltInChecker.get_class_names()
+			for b in built_ins:
+				var dict = code_completion.get_code_complete_dict(CodeEdit.KIND_CLASS, b, b, b)
+				code_completion.add_completion_option(script_editor, dict)
+			
 		
 		# trim the last Member.Access.[Part] to resolve the current class
 		var expression = UString.trim_member_access_back(class_path)

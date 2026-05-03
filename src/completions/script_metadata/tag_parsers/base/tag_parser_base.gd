@@ -7,6 +7,7 @@ const ScriptMetadata = preload("res://addons/code_completions/src/completions/sc
 
 const GDScriptParser = ScriptMetadata.GDScriptParser
 const CaretContext = ScriptMetadata.CaretContext
+
 const ParserKeys = GDScriptParser.Keys
 
 var script_metadata:ScriptMetadata
@@ -18,3 +19,11 @@ func code_completion_requested(script_editor:CodeEdit) -> bool:
 
 func parse_tag(tags:String) -> Dictionary:
 	return {}
+
+
+func _get_tag_metadata(tag:StringName, path:String=""):
+	if path == "":
+		path = script_metadata.get_current_script().resource_path
+	var meta = script_metadata.get_script_metadata(path)
+	print("GETTING::", path, "::", meta)
+	return meta.get(tag)
