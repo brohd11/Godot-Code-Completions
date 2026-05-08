@@ -19,6 +19,11 @@ var show_alias_only:=false
 #var function_object:String
 #var argument_access_object:CaretContext.AccessObject
 
+func test():
+	var c = get_caret_context().char_before_caret
+	pass
+
+
 var comp_object
 
 
@@ -119,7 +124,6 @@ func _process_built_in_enum(identifier:String, force:=false):
 		elif ClassDB.class_exists(part) and part != base_type:
 			base_type = part
 			access_path = UString.dot_join(access_path, part)
-	
 	
 	if not ClassDB.class_has_enum(base_type, enum_name):
 		return false
@@ -399,8 +403,9 @@ static func print_deb(section:String, ...msg:Array):
 
 const _PRINT = [
 	T.ACCESS_PATH, 
-	#T.OBJECT_DATA,
-	#T.BUILT_IN
+	T.OBJECT_DATA,
+	#T.BUILT_IN,
+	T.ENUM,
 	]
 
 

@@ -22,7 +22,8 @@ const TypeAssignmentCompletion = preload("res://addons/code_completions/src/comp
 const HidePrivateCompletion = preload("res://addons/code_completions/src/completions/hide_private.gd")
 const TagCompletion = preload("res://addons/code_completions/src/completions/tag_completion.gd")
 const ConstKey = preload("res://addons/code_completions/src/completions/const_key.gd")
-const ScriptMetadata = preload("res://addons/code_completions/src/completions/script_metadata.gd")
+const ArgLocation = preload("res://addons/code_completions/src/completions/arg_location.gd")
+const StructDict = preload("res://addons/code_completions/src/completions/struct_dict.gd")
 
 var enum_completion:EnumCompletion
 var import_code_completion:ImportCodeCompletion
@@ -30,7 +31,8 @@ var type_assignment_completion:TypeAssignmentCompletion
 var hide_private_completion:HidePrivateCompletion
 var tag_completion:TagCompletion
 var const_key_completion:ConstKey
-var script_metadata:ScriptMetadata
+var arg_location:ArgLocation
+var struct_dict:StructDict
 
 
 const TimeFunction = ALibRuntime.Utils.UProfile.TimeFunction #TODO erase
@@ -141,7 +143,8 @@ func _init_plugins() -> void:
 	hide_private_completion = HidePrivateCompletion.new()
 	tag_completion = TagCompletion.new()
 	const_key_completion = ConstKey.new()
-	script_metadata = ScriptMetadata.new()
+	arg_location = ArgLocation.new()
+	struct_dict = StructDict.new()
 
 func _free_plugins() -> void:
 	var plugins = [
@@ -151,7 +154,8 @@ func _free_plugins() -> void:
 		hide_private_completion,
 		tag_completion,
 		const_key_completion,
-		script_metadata
+		arg_location,
+		struct_dict
 		]
 	for p in plugins:
 		if is_instance_valid(p):
@@ -273,7 +277,7 @@ func _on_code_completion_requested() -> void:
 	for editor_code_completion in code_completions.keys():
 		var t2 = TimeFunction.new(str(editor_code_completion.get_script().resource_path.get_file()))
 		var handled = editor_code_completion._on_code_completion_requested(script_editor)
-		#t2.stop()
+		t2.stop()
 		if handled:
 			_reset_caret_context()
 			return

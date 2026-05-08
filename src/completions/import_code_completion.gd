@@ -57,6 +57,11 @@ const _COMMENT_TAGS = {
 	}
 }
 
+func _get_completion_settings() -> Dictionary:
+	return {
+		"priority": 500,
+	}
+
 
 func _singleton_ready():
 	_init_set_settings()

@@ -1,5 +1,6 @@
-extends EditorCodeCompletion.EditorCodeCompletionSingleton.ScriptMetadata.TagParserBase
+extends EditorCodeCompletion
 
+const TagParser = ALibEditor.Singletons.TagParser
 const EditorGDScriptParser = ALibEditor.Singletons.EditorGDScriptParser
 
 const EditorColors = UtilsRemote.EditorColors
@@ -17,12 +18,14 @@ var _sym_color:Color
 var _global_color:Color
 
 
-func _init() -> void:
+func _singleton_ready() -> void:
 	#EditorCodeCompletion.unregister_tag_static("#!", TAG)
-	EditorCodeCompletion.register_tag_static("#!", TAG, ScriptMetadata.EditorCodeCompletionSingleton.TagLocation.ANY)
+	EditorCodeCompletion.register_tag_static("#!", TAG, EditorCodeCompletionSingleton.TagLocation.ANY)
 	
 	#SyntaxPlusSingleton.unregister_highlight_callable("#!", TAG)
 	SyntaxPlusSingleton.register_highlight_callable("#!", TAG, _syntax_highlighting, SyntaxPlusSingleton.CallableLocation.ANY)
+	
+	TagParser.register_tag_parser(TAG, self)
 	
 	_on_editor_settings_changed()
 	EditorInterface.get_editor_settings().settings_changed.connect(_on_editor_settings_changed)
@@ -35,8 +38,10 @@ func _on_editor_settings_changed():
 	_global_color = EditorColors.get_syntax_color(EditorColors.SyntaxColor.USER_TYPE)
 
 
-func parse_tag(tags:String) -> Dictionary:
-	return _get_tags_in_line(tags)
+func parse_tag(raw_tags:Dictionary) -> Dictionary:
+	var mods_string = raw_tags.get("mods", "")
+	var args_string = raw_tags.get("args", "")
+	return _get_tags_in_line(args_string)
 
 func _get_tags_in_line(tag_string:String):
 	var data = {}
@@ -57,8 +62,8 @@ func _get_tags_in_line(tag_string:String):
 	return data
 
 
-func code_completion_requested(_script_editor:CodeEdit) -> bool:
-	var caret_context = script_metadata.get_caret_context()
+func _on_code_completion_requested(script_editor:CodeEdit) -> bool:
+	var caret_context = get_caret_context()
 	if caret_context.token_state == CaretContext.TokenState.COMMENT:
 		return _comment_complete(caret_context)
 	elif caret_context.is_in_function_call():
@@ -80,13 +85,13 @@ func _comment_complete(caret_context:CaretContext):
 	if not left_of_caret.trim_suffix(expression).strip_edges(false, true).ends_with(":"):
 		return false
 	
-	EditorCodeCompletion.Helpers.class_completion(script_metadata, expression)
+	EditorCodeCompletion.Helpers.class_completion(self, expression)
 	return true
 
 
 func _function_call(caret_context:CaretContext):
-	var script_editor = script_metadata.get_code_edit()
-	var parser = script_metadata.get_gdscript_parser()
+	var script_editor = get_code_edit()
+	var parser = get_gdscript_parser()
 	
 	var function_call_data = caret_context.get_function_call_data()
 	var function_full_script = function_call_data.get_function_script()
@@ -99,7 +104,7 @@ func _function_call(caret_context:CaretContext):
 	var function_class_path = script_data[1]
 	
 	# check for metadata in the script where func is being called
-	var metadata = _get_tag_metadata(TAG, function_script_path)
+	var metadata = TagParser.get_tag_metadata(TAG, function_script_path)
 	if metadata == null:
 		return false
 	
@@ -125,7 +130,7 @@ func _function_call(caret_context:CaretContext):
 	
 	# find the function script parser and it's class object
 	var function_script_parser = parser.get_parser_for_path(function_script_path)
-	var func_class_obj = function_script_parser.get_class_object(function_class_path) as ScriptMetadata.GDScriptParser.ParserClass
+	var func_class_obj = function_script_parser.get_class_object(function_class_path) as GDScriptParser.ParserClass
 	if not is_instance_valid(func_class_obj):
 		return false
 	
@@ -206,19 +211,19 @@ func _function_call(caret_context:CaretContext):
 				# trim the target class from the access path, this should be provided by the path_to_type
 				var trimmed_const_path = const_access_path.trim_prefix(target_script_class_path).trim_prefix(".")
 				var full_path = UString.dot_joinv([path_to_type, trimmed_const_path, c])
-				var cc_dict = script_metadata.get_code_complete_dict(CodeEdit.CodeCompletionKind.KIND_CONSTANT, full_path + tag, full_path, "String", null, location)
-				script_metadata.add_completion_option(script_editor, cc_dict)
+				var cc_dict = get_code_complete_dict(CodeEdit.CodeCompletionKind.KIND_CONSTANT, full_path + tag, full_path, "String", null, location)
+				add_completion_option(script_editor, cc_dict)
 	
 	# if current text is nothing force the completion
-	script_metadata.update_completion_options(function_call_data.get_text_current_arg() == "")
+	update_completion_options(function_call_data.get_text_current_arg() == "")
 	return true
 
 
 #^r this needs work to get proper scope. Completion works but the highlighting does not use parser
 
 func _syntax_highlighting(_script_editor:CodeEdit, current_line_text:String, line_idx:int, comment_tag_idx:int):
-	#var parser = script_metadata.get_gdscript_parser()
-	var path = script_metadata.get_current_script().resource_path
+	#var parser = get_gdscript_parser()
+	var path = get_current_script().resource_path
 	#print("ARG LOC::", path)
 	var parser = EditorGDScriptParser.get_parser(path)
 	var current_class = parser.get_class_at_line(line_idx)

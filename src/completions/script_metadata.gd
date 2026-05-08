@@ -4,8 +4,8 @@ const CacheHelper = preload("res://addons/addon_lib/brohd/alib_runtime/cache_hel
 
 const TagParserBase = preload("res://addons/code_completions/src/completions/script_metadata/tag_parsers/base/tag_parser_base.gd")
 
-const ArgLocation = preload("res://addons/code_completions/src/completions/script_metadata/tag_parsers/arg_location.gd")
-const StructDict = preload("res://addons/code_completions/src/completions/script_metadata/tag_parsers/struct_dict.gd")
+#const ArgLocation = preload("res://addons/code_completions/src/completions/script_metadata/tag_parsers/arg_location.gd")
+#const StructDict = preload("res://addons/code_completions/src/completions/script_metadata/tag_parsers/struct_dict.gd")
 
 var parsers:Dictionary[String, TagParserBase] = {}
 
@@ -19,8 +19,8 @@ func _singleton_ready() -> void:
 
 func _instance_parsers():
 	var parser_array = [
-		ArgLocation,
-		StructDict
+		#ArgLocation,
+		#StructDict
 	]
 	for p in parser_array:
 		var ins = p.new()
