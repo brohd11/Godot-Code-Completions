@@ -101,21 +101,23 @@ func _function_call(caret_context:CaretContext):
 
 
 func _process_identifier(identifier:String):
-	if identifier.ends_with(ENUM_SUFFIX):
-		return _process_script_enum(identifier, true)
-	elif identifier.begins_with("res://"):
+	print("ID>", identifier)
+	if not identifier.ends_with(ENUM_SUFFIX):
 		return false
 	
+	if GDScriptParser.Utils.is_absolute_path(identifier):
+		return _process_script_enum(identifier, true)
 	return _process_built_in_enum(identifier, true)
 
 
 #region Built in Enum
 
 func _process_built_in_enum(identifier:String, force:=false):
+	identifier = identifier.trim_suffix(ENUM_SUFFIX)
 	var base_type = _get_current_script_base_type()
 	var access_path = ""
 	var enum_name = ""
-	var parts = identifier.split(".", false)
+	var parts = identifier.split("::", false)
 	for i in range(parts.size()):
 		var part = parts[i]
 		if ClassDB.class_has_enum(base_type, part):
@@ -129,7 +131,7 @@ func _process_built_in_enum(identifier:String, force:=false):
 		return false
 	var enum_members = ClassDB.class_get_enum_constants(base_type, enum_name)
 	print_deb(T.BUILT_IN, identifier, "->", base_type, enum_name, enum_members)
-	
+	print("ENUM ACCESS::", access_path)
 	return _add_builtin_enum_code_completions(access_path, enum_members, [], force)
 
 func _is_identifier_built_in_enum(identifier:String):

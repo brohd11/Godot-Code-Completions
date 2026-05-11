@@ -401,13 +401,13 @@ func meta_dict(params:={}):
 
 #! keys i-AnotherTest.;
 func check_expression_for_meta(expression:String, line:int=-1):
-	var editor_parser = EditorGDScriptParser.get_parser()
+	var editor_parser:EditorGDScriptParser.GDScriptParser = EditorGDScriptParser.get_parser()
 	
-	var parts = UString.split_member_access(expression)
-	var working_path = ""
+	var parts:Array = UString.split_member_access(expression)
+	var working_path:String = ""
 	
-	for i in range(parts.size()):
-		var p = parts[i]
+	for i:int in range(parts.size()):
+		var p:Variant = parts[i]
 		working_path = UString.dot_join(working_path, p)
 		var type_rich:Dictionary = editor_parser.resolve_expression_to_type_rich(working_path, line)
 		var origin = type_rich.origin
@@ -429,12 +429,12 @@ func check_expression_for_meta(expression:String, line:int=-1):
 			#meta = get_meta_for_type(type_rich.origin)
 		
 		if meta:
-			var tail = ""
-			var key = ""
+			var tail:String = ""
+			var key:String = ""
 			if parts.size() > i + 1:
 				key = parts[i + 1]
 				if parts.size() > i + 2:
-					for ti in range(i + 2, parts.size()):
+					for ti:int in range(i + 2, parts.size()):
 						tail = UString.dot_join(tail, parts[ti])
 			
 			var keys = meta.get("keys")
@@ -572,7 +572,7 @@ static func get_struct(params:Dictionary={}):
 	
 static func test():
 	var d = get_struct()
-	
+	var m = d.material
 	return {
 		
 	}

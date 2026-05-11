@@ -360,15 +360,15 @@ class Helpers:
 				var kind:CodeEdit.CodeCompletionKind = CodeEdit.KIND_MEMBER
 				var location:int = CodeEdit.LOCATION_OTHER | i
 				var font_color = EditorCodeCompletion.Helpers.Colors.DEFAULT_COMPLETION
-				if class_member_type == GDScriptParser.BuiltInChecker._CONSTANTS:
+				if class_member_type == GDScriptParser.BuiltInChecker.CONSTANTS:
 					if is_variant:
 						continue
 					icon = "const"
 					kind = CodeEdit.KIND_CONSTANT
-				elif class_member_type == GDScriptParser.BuiltInChecker._ENUMS:
+				elif class_member_type == GDScriptParser.BuiltInChecker.ENUMS:
 					icon = "enum"
 					kind = CodeEdit.KIND_ENUM
-				elif class_member_type == GDScriptParser.BuiltInChecker._METHODS:
+				elif class_member_type == GDScriptParser.BuiltInChecker.METHODS:
 					if not is_instance and not member_data.get("is_static", false):
 						continue
 					icon = "method"
@@ -381,18 +381,18 @@ class Helpers:
 						else:
 							display = member + EditorCodeCompletion.Helpers.DOTS_UNICODE
 							insert = member + "("
-				elif class_member_type == GDScriptParser.BuiltInChecker._MEMBERS:
+				elif class_member_type == GDScriptParser.BuiltInChecker.MEMBERS:
 					if not is_instance:
 						continue
 					icon = "property"
 					kind = CodeEdit.KIND_MEMBER
 					font_color = get_font_color_for_option(member)
-				elif class_member_type == GDScriptParser.BuiltInChecker._PROPERTIES:
+				elif class_member_type == GDScriptParser.BuiltInChecker.PROPERTIES:
 					if not is_instance:
 						continue
 					icon = "property"
 					kind = CodeEdit.KIND_MEMBER
-				elif class_member_type == GDScriptParser.BuiltInChecker._SIGNALS:
+				elif class_member_type == GDScriptParser.BuiltInChecker.SIGNALS:
 					if not is_instance:
 						continue
 					icon = "signal"
