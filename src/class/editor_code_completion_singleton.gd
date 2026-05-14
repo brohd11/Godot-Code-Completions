@@ -23,7 +23,7 @@ const HidePrivateCompletion = preload("res://addons/code_completions/src/complet
 const TagCompletion = preload("res://addons/code_completions/src/completions/tag_completion.gd")
 const ConstKey = preload("res://addons/code_completions/src/completions/const_key.gd")
 const ArgLocation = preload("res://addons/code_completions/src/completions/arg_location.gd")
-const StructDict = preload("res://addons/code_completions/src/completions/struct_dict.gd")
+const DictKey = preload("res://addons/code_completions/src/completions/dict_key.gd")
 
 var enum_completion:EnumCompletion
 var import_code_completion:ImportCodeCompletion
@@ -32,7 +32,7 @@ var hide_private_completion:HidePrivateCompletion
 var tag_completion:TagCompletion
 var const_key_completion:ConstKey
 var arg_location:ArgLocation
-var struct_dict:StructDict
+var dict_key:DictKey
 
 
 const TimeFunction = ALibRuntime.Utils.UProfile.TimeFunction #TODO erase
@@ -144,7 +144,7 @@ func _init_plugins() -> void:
 	tag_completion = TagCompletion.new()
 	const_key_completion = ConstKey.new()
 	arg_location = ArgLocation.new()
-	struct_dict = StructDict.new()
+	dict_key = DictKey.new()
 
 func _free_plugins() -> void:
 	var plugins = [
@@ -155,7 +155,7 @@ func _free_plugins() -> void:
 		tag_completion,
 		const_key_completion,
 		arg_location,
-		struct_dict
+		dict_key
 		]
 	for p in plugins:
 		if is_instance_valid(p):

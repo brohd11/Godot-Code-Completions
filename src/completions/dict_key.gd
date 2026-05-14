@@ -7,10 +7,11 @@ const EditorGDScriptParser = preload("uid://t2dewmuth0sy") #! resolve ALibEditor
 const PREFIX = &"#!"
 const TAG = &"keys"
 
-const MODIFIERS = ["clean"]
+const INVALID_ACCESS = "-invalid_access"
+
+const MODIFIERS = ["clean", "sort"]
 
 const DICT_FUNCS_TO_SHOW = ["get", "erase", "get_or_add", "has"]
-
 
 
 func _singleton_ready() -> void:
@@ -37,9 +38,9 @@ func parse_tag(raw_tags:Dictionary) -> Dictionary:
 		if t == ":":
 			in_type_assign = true
 		elif not in_type_assign:
-			if t.is_valid_ascii_identifier():
-				last_token = t
-				keys[t] = ""
+			#if t.is_valid_ascii_identifier():
+			last_token = t
+			keys[t] = ""
 		else:
 			in_type_assign = false
 			if last_token != "":
@@ -58,44 +59,23 @@ func _on_code_completion_requested(script_editor:CodeEdit) -> bool:
 	else:
 		return _standard_completion(script_editor, caret_context)
 
-#! keys i-AnotherTest.; 
-func _comment_completion(_script_editor:CodeEdit, caret_context:CaretContext) -> bool:
-	
+
+func _comment_completion(script_editor:CodeEdit, caret_context:CaretContext) -> bool:
 	var comment = caret_context.get_comment()
 	if not comment.begins_with(PREFIX) or not comment.get_slice(PREFIX, 1).strip_edges().begins_with(TAG):
 		return false
-	
-	print("&*&*&")
-	print(caret_context.word_before_caret)
-	print(caret_context.trim_last_member_access_part())
 	
 	var before_car_text = caret_context.current_line_text.left(caret_context.caret_column)
 	var word_before_car = caret_context.word_before_caret
 	var text_trimmed = before_car_text.trim_suffix(word_before_car).strip_edges()
 	if text_trimmed.ends_with(":"):
-		#EditorCodeCompletion.Helpers.class_completion(self, word_before_car, true)
-		#return true
-		print("TYPEFOR::", word_before_car)
-		
-		
 		return Helpers.member_access_completion(self, Helpers.completion_params({
 			"allow_builtin_type": false,
 			"allow_user_type": false,
 			"global_include": true,
 			"global_include_class_preloads": true,
 			"global_include_builtin": true,
-			
 		}))
-		
-		#var class_obj = caret_context.get_current_class_object()
-		#return Helpers.class_completion_from_type(self, word_before_car, class_obj, Helpers.completion_params({
-			#"allow_builtin_type": false,
-			#"allow_user_type": false,
-			#"global_include": true,
-			#"global_include_class_preloads": true,
-			#"global_include_builtin": true,
-			#
-		#}))
 	elif text_trimmed.ends_with("i-"):
 		return Helpers.member_access_completion(self, Helpers.completion_params({
 			"allow_builtin_type": false,
@@ -106,31 +86,29 @@ func _comment_completion(_script_editor:CodeEdit, caret_context:CaretContext) ->
 			"is_instance":true,
 			"insert_parens": false,
 		}))
-		
-		
-		var class_obj = caret_context.get_current_class_object()
-		var trimmed_member = caret_context.trim_last_member_access_part()
-		if trimmed_member == "":
-			trimmed_member = class_obj.get_script_class_path()
-		return Helpers.class_completion_from_type(self, trimmed_member, class_obj, Helpers.completion_params({
-			"allow_builtin_type": false,
-			"global_include": true,
-			"global_include_class_preloads": true,
-			"global_include_builtin": false,
-			"user_include_base_type_members": false,
-			"is_instance":true,
-			"insert_parens": false,
-		}))
+	elif caret_context.current_line_text.find(";", caret_context.caret_column) > -1:
+		var comment_sliced = comment.get_slice(TAG, 1)
+		var current_args_str = comment_sliced.substr(0, comment_sliced.find(";"))
+		var current_args = current_args_str.split(" ", false)
+		for arg in MODIFIERS:
+			if not arg in current_args:
+				var dict = get_code_complete_dict(CodeEdit.KIND_PLAIN_TEXT, arg, arg, Helpers.TAG_ICON_NAME)
+				add_completion_option(script_editor, dict)
+		update_completion_options(true)
+		return true
 	return false
 
-#! keys i-;
-func _standard_completion(script_editor:CodeEdit, caret_context:CaretContext) -> bool:
+
+func _standard_completion(_script_editor:CodeEdit, caret_context:CaretContext) -> bool:
 	
 	var expr = caret_context.expression_before_caret
+	
 	if caret_context.expression_state == CaretContext.ExpressionState.MEMBER_ACCESS:
 		#if caret_context.get_last_member_access_part().length() > 2:
 			#return false
-		var trimmed_expr = UString.trim_member_access_back(expr)
+		#var trimmed_expr = UString.trim_member_access_back(expr)
+		var trimmed_expr = caret_context.trim_last_member_access_part()
+		print("TRIMMED::",trimmed_expr)
 		var dict_data = check_expression_for_meta(trimmed_expr, caret_context.caret_line)
 		print("STRUCT DICT")
 		print(dict_data)
@@ -150,7 +128,6 @@ func _standard_completion(script_editor:CodeEdit, caret_context:CaretContext) ->
 			if func_call_data.current_arg_index > 0:
 				return false
 		function_path = GDScriptParser.Utils.type_path_add_member(function_path, func_name)
-			#member_path = func_call_data.get_function_script()
 		
 		print("FUNC PATH::", function_path)
 		var meta = get_meta_for_type(function_path)
@@ -176,55 +153,45 @@ func _standard_completion(script_editor:CodeEdit, caret_context:CaretContext) ->
 			if current_func_data:
 				return process_from_meta_dict(current_func_data)
 			
-			pass
+	elif caret_context.is_in_dictionary_access():
+		var access_id:String = caret_context.get_index_access_identifier()
+		var dict_data = check_expression_for_meta(access_id, caret_context.caret_line)
+		print("DICT ACCESS::", access_id, " -> ", dict_data)
+		if dict_data:
+			return process_from_meta_dict(dict_data)
 		
+		var current_func_data = _get_current_func_tag_data(access_id)
+		if current_func_data:
+			return process_from_meta_dict(current_func_data)
+		#var type:String = caret_context.resolve_expression_to_type(access_id)
+		#var meta = get_meta_for_type(type)
+		#if meta:
+			#return process_from_meta_dict(
+				#meta_dict({
+					#"meta": meta,
+					#"meta_origin": type,
+				#}))
 	
 	return false
 
-func _get_current_func_tag_data(expression="", limit_to_args:=true):
-	var caret_context = get_caret_context()
-	var current_class_obj = caret_context.get_current_class_object()
-	var current_func = caret_context.get_current_func_object()
-	if not current_func:
-		return
-	
-	if limit_to_args:
-		var type_rich = caret_context.resolve_expression_to_type_rich(UString.trim_member_access_back(expression))
-		if type_rich.member_stack.is_empty():
-			return
-		var back_member = type_rich.member_stack.back()
-		var local_var_data = GDScriptParser.Utils.type_path_get_local_var(back_member)
-		if not local_var_data:
-			return
-		#print(local_var_data)
-		if not current_func.arguments.has(local_var_data.member_name):
-			return
-	
-	var function_path = GDScriptParser.Utils.type_path_add_member(current_class_obj.get_script_class_path(), current_func.name)
-	var meta = get_meta_for_type(function_path)
-	if meta:
-		return {
-			"meta": meta,
-			"meta_origin": function_path,
-			}
-	
 
 func process_from_meta_dict(dict:Dictionary):
-	var sim_call = dict.get("simulated_call", "")
-	if sim_call != "":
+	var sim_call:String = dict.get("simulated_call", INVALID_ACCESS)
+	if sim_call != INVALID_ACCESS and not sim_call.is_empty():
 		return _add_content_completions(dict)
 	
-	if get_caret_context().get_last_member_access_part().length() > 2:
-		return false
+	#if _check_member_access_length():
+		#return false
+	
 	
 	var meta = dict.get("meta")
 	var mods = meta.get("modifiers")
-	if mods.has("clean"):
-		return _clean_dict(meta)
-	
 	var keys = meta.get("keys")
 	if not keys.is_empty():
-		return _add_dict_key_completions(meta)
+		return _add_dict_key_completions(dict)
+	
+	if mods.has("clean") or mods.has("sort"):
+		return _clean_dict(meta)
 	
 	return false
 
@@ -249,18 +216,24 @@ func _add_content_completions(dict_info:Dictionary):
 	var simulated_call = dict_info.get("simulated_call")
 	var resolved_type = parser.resolve_expression_to_type(simulated_call, class_obj.declaration_line)
 	var type_check = GDScriptParser.Utils.type_path_get_type(resolved_type, true)
+	print("RES::", resolved_type)
+	print("TC::", type_check)
 	if type_check != "":
 		resolved_type = type_check
 	
-	return Helpers.class_completion_from_type(self, simulated_call, class_obj)
+	return Helpers.class_completion_from_type(self, resolved_type, class_obj)
 
 
-func _add_dict_key_completions(tag_data:Dictionary):
+func _add_dict_key_completions(_meta_dict:Dictionary):
 	var caret_context = get_caret_context()
 	var script_editor = get_code_edit()
-	
-	var keys_dict = tag_data.get("keys")
+	var meta = _meta_dict.get("meta")
+	var keys_dict = meta.get("keys")
 	var valid_keys = keys_dict.keys()
+	
+	var mods:Array = meta.get("modifiers", [])
+	var clean:bool = mods.has("clean")
+	var sort:bool = mods.has("sort")
 	
 	var member_access = caret_context.expression_state == ExpressionState.MEMBER_ACCESS
 	var func_name = ""
@@ -269,9 +242,10 @@ func _add_dict_key_completions(tag_data:Dictionary):
 		func_name = func_call_data.get_function_name()
 	var in_func = not func_name.is_empty()
 	var in_dict = caret_context.is_in_dictionary()
+	var in_dict_index_access = caret_context.is_in_dictionary_access()
 	var dict_delim:=""
 	
-	if member_access:
+	if member_access or in_dict_index_access:
 		pass # if in member access, we are operating on keys of that object not dict
 	elif (func_name in DICT_FUNCS_TO_SHOW):# and not in_func:
 		pass # if not in func then we can just skio
@@ -305,9 +279,10 @@ func _add_dict_key_completions(tag_data:Dictionary):
 		if in_assign: # if in the dict and not member access, then we can leave
 			return false
 	
-	
 	var lua_dict_syntax = false # temp var, should be a setting
 	var show_extra_info = false # temp var, should be a setting
+	var key_location = CodeEdit.LOCATION_LOCAL
+	
 	
 	if member_access:
 		for key in valid_keys:
@@ -324,13 +299,17 @@ func _add_dict_key_completions(tag_data:Dictionary):
 			if type.strip_edges() == "":
 				type = "Variant"
 			
-			var dict = get_code_complete_dict(CodeEdit.KIND_PLAIN_TEXT, display, key, type)
+			var dict = get_code_complete_dict(CodeEdit.KIND_PLAIN_TEXT, display, key, type, null, key_location)
 			add_completion_option(script_editor, dict)
 	else:
 		var is_quoted = caret_context.token_state == TokenState.STRING or caret_context.token_state == TokenState.STRING_NAME
 		
 		if in_dict and dict_delim == "":
 			dict_delim = "=" if lua_dict_syntax else ":"
+			
+		var color = Helpers.Colors.DEFAULT_COMPLETION
+		if is_quoted or (dict_delim and dict_delim == ":") or in_func or in_dict_index_access:
+			color = UtilsRemote.EditorColors.get_syntax_color(UtilsRemote.EditorColors.SyntaxColor.STRING)
 		
 		for key in valid_keys:
 			var type = keys_dict[key]
@@ -344,7 +323,7 @@ func _add_dict_key_completions(tag_data:Dictionary):
 					insert = UString.quote(insert)
 					insert += ": "
 				
-			elif in_func:
+			elif in_func or in_dict_index_access:
 				if not is_quoted:
 					insert = UString.quote(insert)
 			
@@ -363,30 +342,49 @@ func _add_dict_key_completions(tag_data:Dictionary):
 			if type.strip_edges() == "":
 				type = "Variant"
 			
-			var dict = get_code_complete_dict(CodeEdit.KIND_VARIABLE, display, insert, type)
+			var dict = get_code_complete_dict(CodeEdit.KIND_VARIABLE, display, insert, type, null, key_location, color)
 			add_completion_option(script_editor, dict)
 	
+	if not clean and not (in_dict or in_dict_index_access):
+		_add_dict_methods()
 	
 	update_completion_options(in_func or in_dict)
 	return true
 
-func _clean_dict(tag_data:Dictionary):
-	if get_caret_context().get_last_member_access_part().length() > 2:
-		return false
+
+func _clean_dict(_meta_dict:Dictionary):
+	#if _check_member_access_length():
+		#return false
+	
+	var mods:Array = _meta_dict.get("modifiers", [])
+	var clean:bool = mods.has("clean")
+	var sort:bool = mods.has("sort")
+	
 	var script_editor = get_code_edit()
 	var existing = script_editor.get_code_completion_options()
 	var valid = []
 	for e in existing:
 		if e.get("kind") == CodeEdit.KIND_MEMBER:
+			e.location = CodeEdit.LOCATION_LOCAL
 			valid.append(e)
 	
 	for e in valid:
 		add_completion_option(script_editor, e)
+	
+	if not clean or sort:
+		_add_dict_methods()
+	
 	update_completion_options()
 	return true
 
 
+func _add_dict_methods():
+	Helpers.built_in_completion(self, "Dictionary", true, {
+		"update": false,
+	})
 
+func _check_member_access_length():
+	return get_caret_context().get_last_member_access_part().length() > 2
 
 
 #! keys meta_origin:String meta:Dictionary simulated_call:String
@@ -394,26 +392,36 @@ func meta_dict(params:={}):
 	if not params.has("meta_origin"):
 		params["meta_origin"] = ""
 	if not params.has("simulated_call"):
-		params["simulated_call"] = ""
+		params["simulated_call"] = INVALID_ACCESS
 	if not params.has("meta"):
 		params["meta"] = {}
 	return params
 
-#! keys i-AnotherTest.;
+
 func check_expression_for_meta(expression:String, line:int=-1):
 	var editor_parser:EditorGDScriptParser.GDScriptParser = EditorGDScriptParser.get_parser()
-	
+
 	var parts:Array = UString.split_member_access(expression)
 	var working_path:String = ""
 	
 	for i:int in range(parts.size()):
 		var p:Variant = parts[i]
+		var index:String = ""
+		if p.find("[") > 0: # greater than 0, so it can't start with
+			index = p.substr(p.find("["))
+			p = p.substr(0, p.find("["))
+		
 		working_path = UString.dot_join(working_path, p)
 		var type_rich:Dictionary = editor_parser.resolve_expression_to_type_rich(working_path, line)
 		var origin = type_rich.origin
 		
 		var meta
 		if origin != "":
+			if origin == "Dictionary" and not type_rich.member_stack.is_empty():
+				var local_var_check = _get_local_var_function_data(type_rich)
+				if local_var_check != "":
+					origin = local_var_check
+			
 			meta = get_meta_for_type(origin)
 		
 		#else: # maybe just erase this branch... if you need to access structs in structs, not a great idea
@@ -429,26 +437,59 @@ func check_expression_for_meta(expression:String, line:int=-1):
 			#meta = get_meta_for_type(type_rich.origin)
 		
 		if meta:
+			var member_data = editor_parser.get_member_data_from_origin(origin)
+			if not member_data:
+				return {}
+			var member_type = member_data.get(ParserKeys.MEMBER_TYPE)
+			# if this is a const and it is not the last in the chain, can process the autocomplete through the built in
+			if member_type == ParserKeys.MEMBER_TYPE_CONST and i != parts.size() - 1:
+				return {}
+			
 			var tail:String = ""
 			var key:String = ""
-			if parts.size() > i + 1:
+			if index != "":
+				key = index
+				if parts.size() > i + 1:
+					for ti:int in range(i + 1, parts.size()):
+						tail = UString.dot_join(tail, parts[ti])
+			elif parts.size() > i + 1:
 				key = parts[i + 1]
 				if parts.size() > i + 2:
 					for ti:int in range(i + 2, parts.size()):
 						tail = UString.dot_join(tail, parts[ti])
 			
+			key = _get_meta_key(key)
 			var keys = meta.get("keys")
 			var key_type = keys.get(key, "")
 			var assembled_tail = ""
-			if key_type != "":
+			if key == "":
+				pass # no key means end of chain
+			elif key_type != "":
 				key_type = key_type + ParserKeys.INS_DELIM
 				assembled_tail = UString.dot_join(key_type, tail)
+			else:
+				assembled_tail = INVALID_ACCESS
+			
 			return meta_dict({
 				"meta_origin": origin,
 				"meta": meta,
 				"simulated_call": assembled_tail,
 			})
 	return {}
+
+func _get_meta_key(full_part:String):
+	if full_part.ends_with(")"):
+		var func_name = full_part.substr(0, full_part.find("(")).strip_edges()
+		if func_name == "get" or func_name == "get_or_add":
+			var trimmed = full_part.trim_prefix(func_name + "(").trim_suffix(")")
+			if UString.is_string_or_string_name(trimmed):
+				return UString.unquote(trimmed)
+	elif full_part.ends_with("]"):
+		var trimmed = full_part.trim_suffix("]").trim_prefix("[")
+		if UString.is_string_or_string_name(trimmed):
+			return UString.unquote(trimmed)
+	
+	return full_part
 
 
 func get_meta_for_type(type_origin_string:String):
@@ -483,18 +524,57 @@ func get_meta_for_type(type_origin_string:String):
 	return metadata.get(TAG)
 
 
+func _get_current_func_tag_data(expression="", limit_to_args:=true):
+	var caret_context = get_caret_context()
+	var current_class_obj = caret_context.get_current_class_object()
+	var current_func = caret_context.get_current_func_object()
+	if not current_func:
+		return
+	
+	var function_path:String
+	if limit_to_args:
+		var type_rich = caret_context.resolve_expression_to_type_rich(expression)
+		var local_var_check = _get_local_var_function_data(type_rich)
+		if local_var_check == "":
+			return
+		function_path = local_var_check
+	else:
+		function_path = GDScriptParser.Utils.type_path_add_member(current_class_obj.get_script_class_path(), current_func.name)
+	
+	var meta = get_meta_for_type(function_path)
+	if meta:
+		return {
+			"meta": meta,
+			"meta_origin": function_path,
+			}
+
+#! keys i-GDScriptParser.resolve_expression_to_type_rich;
+func _get_local_var_function_data(type_rich:Dictionary, limit_to_arg:=true):
+	if type_rich.origin != "Dictionary" or type_rich.member_stack.is_empty():
+		return ""
+	var back = type_rich.member_stack.back().get_slice(ParserKeys.MEMBER_STACK_DELIM, 0)
+	var local_var_data = GDScriptParser.Utils.type_path_get_local_var(back)
+	if not local_var_data:
+		return ""
+	var parser_data = EditorGDScriptParser.get_parser().get_parser_and_class_obj_for_script(back)
+	var class_obj = parser_data.class_obj as GDScriptParser.ParserClass
+	var func_obj = class_obj.get_function(class_obj.get_function_at_line(local_var_data.line))
+	if limit_to_arg:
+		if not func_obj.get_arguments().has(local_var_data.member_name):
+			return ""
+	return GDScriptParser.Utils.type_path_add_member(class_obj.get_script_class_path(), func_obj.name)
+
 func resolve_tagged_expression(expression:String, line:int=-1):
 	var editor_parser = EditorGDScriptParser.get_parser()
 	var meta = check_expression_for_meta(expression, line)
 	
-	
-	var sim_call = meta.get("simulated_call", "")
-	
-	if sim_call != "":
+	var sim_call = meta.get("simulated_call", INVALID_ACCESS)
+	if sim_call != INVALID_ACCESS:
 		var resolved = editor_parser.resolve_expression_to_type(sim_call, line)
-		print("SIM CALL::", sim_call, "::", resolved)
+		#print("SIM CALL::", sim_call, "::", resolved)
 		return resolved
 	return ""
+
 
 
 func _syntax_highlighting(_script_editor:CodeEdit, current_line_text:String, line_idx:int, comment_tag_idx:int):
@@ -504,7 +584,8 @@ func _syntax_highlighting(_script_editor:CodeEdit, current_line_text:String, lin
 	
 	var prefix_end = SyntaxPlusSingleton.HLInfo.get_tag_end_index(PREFIX, TAG, comment_text)
 	
-	var gdscript_parser = EditorGDScriptParser.get_parser()
+	#var gdscript_parser = EditorGDScriptParser.get_parser()
+	var gdscript_parser = SyntaxPlusSingleton.get_gdscript_parser() # use this one since it just needs the members, no type inference
 	var current_class = gdscript_parser.get_class_at_line(line_idx)
 	var current_class_obj = gdscript_parser.get_class_object(current_class) as GDScriptParser.ParserClass
 	var script_class_path = current_class_obj.get_script_class_path()
@@ -517,10 +598,11 @@ func _syntax_highlighting(_script_editor:CodeEdit, current_line_text:String, lin
 	var in_inh_statement:=false
 	var in_type_assign = false
 	var idx = 0
-	print(tokens)
+	
 	for t in tokens:
 		idx = stripped_comment.find(t, idx)
 		var adj_idx = idx + prefix_end
+		var adj_token_end = adj_idx + t.length()
 		if in_args:
 			if t == ";":
 				in_args = false
@@ -532,22 +614,21 @@ func _syntax_highlighting(_script_editor:CodeEdit, current_line_text:String, lin
 				if in_inh_statement:
 					SyntaxPlusSingleton.HLInfo.add_color(hl_info, sp_ins.comment_color, adj_idx, -1, null, false)
 			elif in_inh_statement:
-				#hl_info.erase(adj_idx)
 				hl_info.merge(SyntaxPlusSingleton.HLInfo.check_const_path(t, script_class_path, adj_idx))
-				SyntaxPlusSingleton.HLInfo.add_color(hl_info, sp_ins.comment_color, adj_idx + t.length())
+				SyntaxPlusSingleton.HLInfo.add_color(hl_info, sp_ins.comment_color, adj_token_end)
 				in_inh_statement = false
 			elif t in MODIFIERS:
-				SyntaxPlusSingleton.HLInfo.add_color(hl_info, sp_ins.DEFAULT_TAG_COLOR, adj_idx, adj_idx + t.length(), null, false)
+				SyntaxPlusSingleton.HLInfo.add_color(hl_info, sp_ins.DEFAULT_TAG_COLOR, adj_idx, adj_token_end, null, false)
 			
 		elif t == ":":
 			SyntaxPlusSingleton.HLInfo.add_color(hl_info, sp_ins.symbol_color, adj_idx, -1, null, false)
 			in_type_assign = true
 		elif not in_type_assign:
-			SyntaxPlusSingleton.HLInfo.add_color(hl_info, sp_ins.default_text_color, adj_idx, adj_idx + t.length())
+			SyntaxPlusSingleton.HLInfo.add_color(hl_info, sp_ins.default_text_color, adj_idx, adj_token_end)
 		else:
 			in_type_assign = false
 			if GDScriptParser.BuiltInChecker.is_builtin_class(t):
-				SyntaxPlusSingleton.HLInfo.add_color(hl_info, sp_ins.engine_type_color, adj_idx, adj_idx + t.length())
+				SyntaxPlusSingleton.HLInfo.add_color(hl_info, sp_ins.engine_type_color, adj_idx, adj_token_end)
 			else:
 				hl_info.merge(SyntaxPlusSingleton.HLInfo.check_const_path(t, script_class_path, adj_idx))
 	
@@ -556,9 +637,16 @@ func _syntax_highlighting(_script_editor:CodeEdit, current_line_text:String, lin
 
 
 
+
+
 # examples
 #! keys clean;
 const Dict = {
+	"some_val": "yes"
+}
+
+#! keys sort;
+const SortedDict = {
 	"some_val": "yes"
 }
 
@@ -571,18 +659,32 @@ static func get_struct(params:Dictionary={}):
 	
 	
 static func test():
+	
 	var d = get_struct()
 	var m = d.material
+	
 	return {
 		
 	}
 
+#! keys Test.VAR:String
+var test_dict = {}
 
-#! keys string:String another:AnotherTest
+func non_stat():
+	test_dict.get("Test.VAR")
+	
+	
+
+#! keys clean; string:String another:AnotherTest
 static func get_ddata(params:={
-	"string":"",
-	"another":""
+	
 }):
+	var d = params.string
+	var bad = params.as
+	
+	params["string"]
+	params.has("string")
+	#params[]
 	
 	
 	pass

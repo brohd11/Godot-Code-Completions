@@ -51,7 +51,7 @@ func _on_code_completion_requested(script_editor:CodeEdit) -> bool:
 			continue
 		elif location == TagLocation.END and tag_idx == 0:
 			continue
-		var cc_dict = get_code_complete_dict(CodeEdit.CodeCompletionKind.KIND_CLASS, tag, tag, "BoneMapperHandleCircle")
+		var cc_dict = get_code_complete_dict(CodeEdit.CodeCompletionKind.KIND_CLASS, tag, tag, Helpers.TAG_ICON_NAME)
 		add_completion_option(script_editor, cc_dict)
 		valid_tags.append(tag)
 	

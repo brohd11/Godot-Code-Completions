@@ -202,6 +202,7 @@ class Helpers:
 		const AXIS_W = Color(0.55, 0.55, 0.55, 1.0)
 	
 	const DOTS_UNICODE = "(\u2026)"
+	const TAG_ICON_NAME = "BoneMapperHandleCircle"
 	
 	## Pass the full class path before the caret.
 	static func class_completion(code_completion:EditorCodeCompletion, class_path:String, include_built_ins:=false, update:=true):

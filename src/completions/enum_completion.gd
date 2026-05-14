@@ -10,21 +10,7 @@ var enum_enable:= false
 var show_member_suggestions:= false
 var show_alias_only:=false
 
-#var data_cache = {}
-
-#var completion_cache = {}
-
-#var access_object:CaretContext.AccessObject
-#var function_access_object:CaretContext.AccessObject
-#var function_object:String
-#var argument_access_object:CaretContext.AccessObject
-
-func test():
-	var c = get_caret_context().char_before_caret
-	pass
-
-
-var comp_object
+var comp_object:Object
 
 
 func _singleton_ready():
@@ -117,19 +103,29 @@ func _process_built_in_enum(identifier:String, force:=false):
 	var base_type = _get_current_script_base_type()
 	var access_path = ""
 	var enum_name = ""
-	var parts = identifier.split("::", false)
-	for i in range(parts.size()):
-		var part = parts[i]
-		if ClassDB.class_has_enum(base_type, part):
-			enum_name = part
-			break
-		elif ClassDB.class_exists(part) and part != base_type:
-			base_type = part
-			access_path = UString.dot_join(access_path, part)
+	var enum_members = []
+	if not identifier.contains("::"):
+		var member_data = GDScriptParser.BuiltInChecker.get_member_data("", identifier)
+		if not member_data:
+			return false
+		for v in member_data.get("values"):
+			enum_members.append(v.get("name"))
+		
+	else:
+		var parts = identifier.split("::", false)
+		for i in range(parts.size()):
+			var part = parts[i]
+			if ClassDB.class_has_enum(base_type, part):
+				enum_name = part
+				break
+			elif ClassDB.class_exists(part) and part != base_type:
+				base_type = part
+				access_path = UString.dot_join(access_path, part)
 	
-	if not ClassDB.class_has_enum(base_type, enum_name):
-		return false
-	var enum_members = ClassDB.class_get_enum_constants(base_type, enum_name)
+		if not ClassDB.class_has_enum(base_type, enum_name):
+			return false
+		enum_members = ClassDB.class_get_enum_constants(base_type, enum_name)
+	
 	print_deb(T.BUILT_IN, identifier, "->", base_type, enum_name, enum_members)
 	print("ENUM ACCESS::", access_path)
 	return _add_builtin_enum_code_completions(access_path, enum_members, [], force)
@@ -144,8 +140,8 @@ func _is_identifier_built_in_enum(identifier:String):
 	return ""
 
 
-func _get_current_script_base_type():
-	var current_script = get_current_script()
+func _get_current_script_base_type() -> StringName:
+	var current_script:GDScript = get_current_script()
 	return current_script.get_instance_base_type()
 
 
