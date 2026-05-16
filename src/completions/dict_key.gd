@@ -1,5 +1,6 @@
 extends EditorCodeCompletion
 
+const SettingHelper = ALibEditor.Settings.SettingHelperEditor
 const TagParser = ALibEditor.Singletons.TagParser
 
 const EditorGDScriptParser = preload("uid://t2dewmuth0sy") #! resolve ALibEditor.Singletons.EditorGDScriptParser
@@ -13,12 +14,23 @@ const MODIFIERS = ["clean", "sort"]
 
 const DICT_FUNCS_TO_SHOW = ["get", "erase", "get_or_add", "has"]
 
+var _setting_helper:SettingHelper
+var _enable:bool = true
+var _prefer_lua_style:bool = false
+var _prefer_string_name:bool = true
+
 
 func _singleton_ready() -> void:
 	EditorCodeCompletion.register_tag_static(PREFIX, TAG, EditorCodeCompletionSingleton.TagLocation.ANY)
 	SyntaxPlusSingleton.register_highlight_callable(PREFIX, TAG, _syntax_highlighting, SyntaxPlusSingleton.CallableLocation.ANY)
 	
 	TagParser.register_tag_parser(TAG, self)
+	
+	_setting_helper = SettingHelper.new()
+	_setting_helper.subscribe_property(self, &"_enable", EditorSet.ENABLE, true)
+	_setting_helper.subscribe_property(self, &"_prefer_lua_style", EditorSet.PREFER_LUA_STYLE, false)
+	_setting_helper.subscribe_property(self, &"_prefer_string_name", EditorSet.PREFER_STRING_NAME, true)
+	_setting_helper.initialize()
 
 
 func parse_tag(raw_tags:Dictionary) -> Dictionary:
@@ -53,6 +65,9 @@ func parse_tag(raw_tags:Dictionary) -> Dictionary:
 
 
 func _on_code_completion_requested(script_editor:CodeEdit) -> bool:
+	if not _enable:
+		return false
+	
 	var caret_context = get_caret_context()
 	if caret_context.token_state == CaretContext.TokenState.COMMENT:
 		return _comment_completion(script_editor, caret_context)
@@ -175,7 +190,7 @@ func _standard_completion(_script_editor:CodeEdit, caret_context:CaretContext) -
 	return false
 
 
-func process_from_meta_dict(dict:Dictionary):
+func process_from_meta_dict(dict:Dictionary) -> bool:
 	var sim_call:String = dict.get("simulated_call", INVALID_ACCESS)
 	if sim_call != INVALID_ACCESS and not sim_call.is_empty():
 		return _add_content_completions(dict)
@@ -183,10 +198,11 @@ func process_from_meta_dict(dict:Dictionary):
 	#if _check_member_access_length():
 		#return false
 	
+	#var testt:
 	
-	var meta = dict.get("meta")
-	var mods = meta.get("modifiers")
-	var keys = meta.get("keys")
+	var meta:Dictionary = dict.get("meta")
+	var mods:Array = meta.get("modifiers")
+	var keys:Dictionary = meta.get("keys")
 	if not keys.is_empty():
 		return _add_dict_key_completions(dict)
 	
@@ -279,8 +295,7 @@ func _add_dict_key_completions(_meta_dict:Dictionary):
 		if in_assign: # if in the dict and not member access, then we can leave
 			return false
 	
-	var lua_dict_syntax = false # temp var, should be a setting
-	var show_extra_info = false # temp var, should be a setting
+	var show_extra_info = false # temp var, should be a setting.. this can probably be removed...
 	var key_location = CodeEdit.LOCATION_LOCAL
 	
 	
@@ -302,34 +317,44 @@ func _add_dict_key_completions(_meta_dict:Dictionary):
 			var dict = get_code_complete_dict(CodeEdit.KIND_PLAIN_TEXT, display, key, type, null, key_location)
 			add_completion_option(script_editor, dict)
 	else:
-		var is_quoted = caret_context.token_state == TokenState.STRING or caret_context.token_state == TokenState.STRING_NAME
-		
 		if in_dict and dict_delim == "":
-			dict_delim = "=" if lua_dict_syntax else ":"
-			
+			dict_delim = "=" if _prefer_lua_style else ":"
+		
+		var in_string = caret_context.token_state == TokenState.STRING or caret_context.token_state == TokenState.STRING_NAME
+		var needs_quote = (dict_delim and dict_delim == ":") or in_func or in_dict_index_access
+		
 		var color = Helpers.Colors.DEFAULT_COMPLETION
-		if is_quoted or (dict_delim and dict_delim == ":") or in_func or in_dict_index_access:
-			color = UtilsRemote.EditorColors.get_syntax_color(UtilsRemote.EditorColors.SyntaxColor.STRING)
+		if not (in_dict and dict_delim == "=") and (in_string or needs_quote):
+			if _prefer_string_name and not caret_context.token_state == TokenState.STRING:
+				color = UtilsRemote.EditorColors.get_syntax_color(UtilsRemote.EditorColors.SyntaxColor.STRING_NAME)
+			else:
+				color = UtilsRemote.EditorColors.get_syntax_color(UtilsRemote.EditorColors.SyntaxColor.STRING)
 		
 		for key in valid_keys:
 			var type = keys_dict[key]
 			var key_text = key
 			
 			var insert = key_text
-			if in_dict and not is_quoted:
+			if in_dict and not in_string:
 				if dict_delim == "=":
 					insert += "="
 				elif dict_delim == ":":
 					insert = UString.quote(insert)
+					if _prefer_string_name:
+						insert = "&" + insert
 					insert += ": "
 				
 			elif in_func or in_dict_index_access:
-				if not is_quoted:
+				if not in_string:
 					insert = UString.quote(insert)
+					if _prefer_string_name:
+						insert = "&" + insert
 			
 			var display = key_text
-			if insert.begins_with('"'):
+			if insert.begins_with('"') or insert.begins_with('&"'):
 				display = UString.quote(display)
+				if _prefer_string_name:
+					display = "&" + display
 			
 			if show_extra_info:
 				if type != "":
@@ -350,6 +375,7 @@ func _add_dict_key_completions(_meta_dict:Dictionary):
 	
 	update_completion_options(in_func or in_dict)
 	return true
+
 
 
 func _clean_dict(_meta_dict:Dictionary):
@@ -477,6 +503,7 @@ func check_expression_for_meta(expression:String, line:int=-1):
 			})
 	return {}
 
+
 func _get_meta_key(full_part:String):
 	if full_part.ends_with(")"):
 		var func_name = full_part.substr(0, full_part.find("(")).strip_edges()
@@ -499,6 +526,7 @@ func get_meta_for_type(type_origin_string:String):
 	var metadata = TagParser.get_metadata_for_type(type_origin_string)
 	if not metadata:
 		return
+	
 	var parser = EditorGDScriptParser.get_parser()
 	var next_parser_data = parser.get_parser_and_class_obj_for_script(type_origin_string)
 	if not next_parser_data:
@@ -507,6 +535,8 @@ func get_meta_for_type(type_origin_string:String):
 	var class_obj = next_parser_data.class_obj
 	
 	var member_meta = metadata.get(TAG)
+	if not member_meta:
+		return
 	var keys = member_meta.get("keys")
 	var mods = member_meta.get("modifiers")
 	for m in mods:
@@ -635,56 +665,47 @@ func _syntax_highlighting(_script_editor:CodeEdit, current_line_text:String, lin
 	SyntaxPlusSingleton.HLInfo.add_color(hl_info, sp_ins.comment_color, current_line_text.length(), -1, null, false)
 	return hl_info
 
-
-
+class EditorSet:
+	const ENABLE = &"plugin/code_completion/dict_key/enable"
+	const PREFER_LUA_STYLE = &"plugin/code_completion/dict_key/prefer_lua_style"
+	const PREFER_STRING_NAME = &"plugin/code_completion/dict_key/prefer_string_name"
 
 
 # examples
 #! keys clean;
 const Dict = {
-	"some_val": "yes"
+	"key1": "",
+	"key2": "",
+	"key3": "",
+	"key4": "",
+	"key5": "",
 }
 
 #! keys sort;
 const SortedDict = {
-	"some_val": "yes"
+	"key1": "",
+	"key2": "",
+	"key3": "",
+	"key4": "",
+	"key5": "",
 }
 
- #! keys string:String object:EditorCodeCompletion another_test:AnotherTest
- #! keys vec:Vector2 material:StandardMaterial3D
-static func get_struct(params:Dictionary={}):
+#! keys string:String vec:Vector2 material:StandardMaterial3D
+static func get_dict(params:Dictionary={}):
 	if not params.has("string"):
 		params["string"] = "DefaultVal"
 	return params
-	
-	
-static func test():
-	
-	var d = get_struct()
-	var m = d.material
-	
-	return {
+
+#! keys i-NewScript.create_dict; another_key:String
+var inh_dict = {}
+
+func test():
+	get_dict({
 		
-	}
-
-#! keys Test.VAR:String
-var test_dict = {}
-
-func non_stat():
-	test_dict.get("Test.VAR")
+	})
 	
-	
-
-#! keys clean; string:String another:AnotherTest
-static func get_ddata(params:={
-	
-}):
-	var d = params.string
-	var bad = params.as
-	
-	params["string"]
-	params.has("string")
-	#params[]
-	
+	var d = AnotherTest.NestStruct.get_struct({
+		
+	})
 	
 	pass

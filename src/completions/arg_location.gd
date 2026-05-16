@@ -99,26 +99,28 @@ func _function_call(caret_context:CaretContext):
 		return false
 	
 	#var script_data = UString.get_script_path_and_suffix(function_full_script)
+	var function_location = GDScriptParser.Utils.type_path_add_member(function_full_script, function_call_data.get_function_name())
+	
 	var script_data = GDScriptParser.Utils.type_path_get_script_data(function_full_script)
 	var function_script_path = script_data[0]
 	var function_class_path = script_data[1]
 	
 	# check for metadata in the script where func is being called
-	var metadata = TagParser.get_tag_metadata(TAG, function_script_path)
-	if metadata == null:
+	var metadata = TagParser.get_metadata_for_type(function_location, TAG)
+	print("ARG LOCATION")
+	print(metadata)
+	if not metadata:
 		return false
 	
-	# find the method data from the metadata, if not return
-	var full_method_name = UString.dot_join(function_class_path, function_call_data.get_function_name())
-	var method_data = metadata.get(full_method_name)
-	if method_data == null:
-		return false
+	#ALibRuntime.DebugPrint.print_deb()
+	
+	var location_data = metadata.get(TAG)
 	var current_arg = function_call_data.func_get_current_arg()
-	if not method_data.has(current_arg.name):
+	if not location_data.has(current_arg.name):
 		return false
 	
 	# this is just the declaration, it can be relative or absolute, factor that in below
-	var declared_target_class = method_data[current_arg.name]
+	var declared_target_class = location_data[current_arg.name]
 	var target_args = []
 	if declared_target_class.contains("-"): # target arg delimited by '-', not a valid char for identifier
 		var args_string:String = declared_target_class.get_slice("-", 1)
@@ -139,42 +141,36 @@ func _function_call(caret_context:CaretContext):
 	if not resolved_target_type.begins_with("res://"):
 		return false # not a script, nothing we can do
 	
+
 	
-	#var resolved_script_data = UString.get_script_path_and_suffix(resolved_target_type)
 	var resolved_script_data = GDScriptParser.Utils.type_path_get_script_data(resolved_target_type)
-	var target_script_path = resolved_script_data[0]
 	var target_script_class_path = resolved_script_data[1]
 	
-	var target_script_parser = function_script_parser.get_parser_for_path(target_script_path)
-	var target_class_obj = target_script_parser.get_class_object(target_script_class_path)
+	var target_parser_data = function_script_parser.get_parser_and_class_obj_for_script(resolved_target_type)
+	var target_script_parser = target_parser_data.parser
+	var target_class_obj = target_parser_data.class_obj
 	
-	if not is_instance_valid(target_class_obj): #^r this shouldn't trigger ever now...
-		printerr("arg_location.gd - TARGET CLASS NOT FOUND, ", resolved_target_type)
-		target_script_class_path = UString.dot_join(function_class_path, target_script_class_path)
-		target_class_obj = target_script_parser.get_class_object(target_script_class_path)
-		if not is_instance_valid(target_class_obj):
-			return false
 	
-	var search_term = UString.dot_join(target_script_path, target_script_class_path) # may not need this now, could just pass the resolved type. Confirm the above doesn't trigger
 	
-	var access_object = parser.resolve_to_access_object(declared_target_class)
-	var path_to_options = function_call_data.get_type_access_path(search_term, access_object)
+	var access_object = target_script_parser.resolve_to_access_object(declared_target_class)
+	var path_to_options = function_call_data.get_type_access_path(resolved_target_type, access_object)
 	var valid_paths = {}
 	if path_to_options.global != "": valid_paths[path_to_options.global] = " [Global]"
 	if path_to_options.script_alias != "": valid_paths[path_to_options.script_alias] = " [Script Alias]"
 	if path_to_options.standard != "": valid_paths[path_to_options.standard] = ""
 	
 	if valid_paths.is_empty(): # not valid paths, return
-		print("arg_location.gd - NO VALID PATHS -> ", method_data)
+		print("arg_location.gd - NO VALID PATHS -> ", location_data)
 		return false
 	
 	#print("PATH TO ", path_to_options.standard)
 	#print("PATH TO ", path_to_options.script_alias)
 	#print("PATH TO ", path_to_options.global)
 	
-	#AnotherTest.test_arg(AnotherTest.TestArg.TEST)
+	#AnotherTest.test_arg(AnotherTest.TestArg.SomeMore.More)
 	#AnotherTest.TestArg.test_args(AnotherTest.TestArg.ARG, AnotherTest.Nest.MY_STRING)
 	
+	#ALibRuntime.DebugPrint.print_deb()
 	
 	var valid_classes = []
 	var deep_search = "d" in target_args or "deep" in target_args
@@ -202,10 +198,10 @@ func _function_call(caret_context:CaretContext):
 				# check type is string, this could be done differently. Could use the argument type to determine what they should be
 				# also could just not do it, and list all, not sure. In a class that is just strings this will be quick, if you have a bunch of preloads it could be slow
 				var type = valid_class.get_member_type(c)
-				var type_string = GDScriptParser.Utils.type_path_get_type(type)
-				if type_string == "":
-					type_string = type
-				if type_string != "String" and type_string != "StringName":
+				var type_suffix = GDScriptParser.Utils.type_path_get_type(type)
+				if type_suffix == "":
+					type_suffix = type
+				if type_suffix != "String" and type_suffix != "StringName":
 					continue
 				
 				# trim the target class from the access path, this should be provided by the path_to_type
