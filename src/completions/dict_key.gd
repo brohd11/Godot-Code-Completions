@@ -1,9 +1,7 @@
 extends EditorCodeCompletion
 
-const SettingHelper = ALibEditor.Settings.SettingHelperEditor
-const TagParser = ALibEditor.Singletons.TagParser
-
-const EditorGDScriptParser = preload("uid://t2dewmuth0sy") #! resolve ALibEditor.Singletons.EditorGDScriptParser
+const SettingHelper = UtilsRemote.SettingHelperEditor
+const TagParser = UtilsRemote.TagParser
 
 const PREFIX = &"#!"
 const TAG = &"keys"
@@ -18,6 +16,8 @@ var _setting_helper:SettingHelper
 var _enable:bool = true
 var _prefer_lua_style:bool = false
 var _prefer_string_name:bool = true
+
+var _code_hint_line = -1
 
 
 func _singleton_ready() -> void:
@@ -63,12 +63,20 @@ func parse_tag(raw_tags:Dictionary) -> Dictionary:
 		"modifiers": mod_data
 	}
 
+func _on_editor_script_changed(script) -> void:
+	_code_hint_line = -1
 
 func _on_code_completion_requested(script_editor:CodeEdit) -> bool:
 	if not _enable:
 		return false
 	
 	var caret_context = get_caret_context()
+	
+	if _code_hint_line > -1:
+		if _code_hint_line == caret_context.caret_line:
+			script_editor.set_code_hint("")
+		_code_hint_line = -1
+	
 	if caret_context.token_state == CaretContext.TokenState.COMMENT:
 		return _comment_completion(script_editor, caret_context)
 	else:
@@ -115,77 +123,69 @@ func _comment_completion(script_editor:CodeEdit, caret_context:CaretContext) -> 
 
 
 func _standard_completion(_script_editor:CodeEdit, caret_context:CaretContext) -> bool:
-	
-	var expr = caret_context.expression_before_caret
-	
 	if caret_context.expression_state == CaretContext.ExpressionState.MEMBER_ACCESS:
-		#if caret_context.get_last_member_access_part().length() > 2:
-			#return false
-		#var trimmed_expr = UString.trim_member_access_back(expr)
+		# check member access of the accessed dict
 		var trimmed_expr = caret_context.trim_last_member_access_part()
-		print("TRIMMED::",trimmed_expr)
 		var dict_data = check_expression_for_meta(trimmed_expr, caret_context.caret_line)
-		print("STRUCT DICT")
-		print(dict_data)
 		if dict_data:
 			return process_from_meta_dict(dict_data)
 		
+		# hasn't been found, check if it's a dictionary in args
 		var current_func_data = _get_current_func_tag_data(trimmed_expr)
 		if current_func_data:
 			return process_from_meta_dict(current_func_data)
 		return false
 	elif caret_context.is_in_function_call():
-		print("FUNC")
 		var func_call_data = caret_context.get_function_call_data()
 		var func_name = func_call_data.get_function_name()
 		var function_path = func_call_data.get_function_script()
-		if func_name in DICT_FUNCS_TO_SHOW:
-			if func_call_data.current_arg_index > 0:
-				return false
-		function_path = GDScriptParser.Utils.type_path_add_member(function_path, func_name)
 		
-		print("FUNC PATH::", function_path)
-		var meta = get_meta_for_type(function_path)
-		if meta:
-			return process_from_meta_dict(
-				meta_dict({
-					"meta": meta,
-					"meta_origin": function_path,
-				}))
+		# absolute path, check for data with the current accessed func
+		if GDScriptParser.Utils.is_absolute_path(function_path):
+			if func_name in DICT_FUNCS_TO_SHOW:
+				if func_call_data.current_arg_index > 0:
+					return false
+			function_path = GDScriptParser.Utils.type_path_add_member(function_path, func_name)
+			var meta = get_meta_for_type(function_path)
+			if meta:
+				return process_from_meta_dict(
+					meta_dict({
+						"meta": meta,
+						"meta_origin": function_path,
+					}))
 		
-		var func_call_chain = UString.trim_member_access_back(func_call_data.expression)
+		# if in a func call of a dictionary arg of current func, display keys
+		var func_call_chain:String = UString.trim_member_access_back(func_call_data.expression)
 		var current_func_data = _get_current_func_tag_data(func_call_chain)
 		if current_func_data:
 			return process_from_meta_dict(current_func_data)
 		
+		# last thing, if the meta can be found, resolve and display a code hint
+		var call_chain_meta = check_expression_for_meta(func_call_chain, caret_context.caret_line)
+		if call_chain_meta and call_chain_meta.simulated_call != INVALID_ACCESS:
+			var sim_type = caret_context.resolve_expression_to_type(call_chain_meta.simulated_call).trim_suffix(ParserKeys.INS_DELIM)
+			if sim_type:
+				Helpers.set_code_hint(self, sim_type, func_name)
+				_code_hint_line = caret_context.caret_line
+		
 	elif caret_context.is_in_dictionary():
-		if caret_context.code_context_stripped.begins_with("return"):
-			var current_func_data = _get_current_func_tag_data("", false)
-			if current_func_data:
-				return process_from_meta_dict(current_func_data)
-		elif caret_context.line_declaration.ends_with("func"):
+		# in return raw dict declaration or in arg default param
+		if caret_context.code_context_stripped.begins_with("return") or caret_context.line_declaration.ends_with("func"):
 			var current_func_data = _get_current_func_tag_data("", false)
 			if current_func_data:
 				return process_from_meta_dict(current_func_data)
 			
 	elif caret_context.is_in_dictionary_access():
+		# check current expression for meta, direct[access]
 		var access_id:String = caret_context.get_index_access_identifier()
 		var dict_data = check_expression_for_meta(access_id, caret_context.caret_line)
-		print("DICT ACCESS::", access_id, " -> ", dict_data)
 		if dict_data:
 			return process_from_meta_dict(dict_data)
 		
+		# if not check for local arg dict
 		var current_func_data = _get_current_func_tag_data(access_id)
 		if current_func_data:
 			return process_from_meta_dict(current_func_data)
-		#var type:String = caret_context.resolve_expression_to_type(access_id)
-		#var meta = get_meta_for_type(type)
-		#if meta:
-			#return process_from_meta_dict(
-				#meta_dict({
-					#"meta": meta,
-					#"meta_origin": type,
-				#}))
 	
 	return false
 
@@ -197,8 +197,6 @@ func process_from_meta_dict(dict:Dictionary) -> bool:
 	
 	#if _check_member_access_length():
 		#return false
-	
-	#var testt:
 	
 	var meta:Dictionary = dict.get("meta")
 	var mods:Array = meta.get("modifiers")
@@ -214,7 +212,6 @@ func process_from_meta_dict(dict:Dictionary) -> bool:
 
 # trim the expression for simulated call before it gets here
 func _add_content_completions(dict_info:Dictionary):
-	#var current_script = get_current_script()
 	var caret_context = get_caret_context()
 	
 	var type_origin = dict_info.get("meta_origin")
@@ -232,8 +229,6 @@ func _add_content_completions(dict_info:Dictionary):
 	var simulated_call = dict_info.get("simulated_call")
 	var resolved_type = parser.resolve_expression_to_type(simulated_call, class_obj.declaration_line)
 	var type_check = GDScriptParser.Utils.type_path_get_type(resolved_type, true)
-	print("RES::", resolved_type)
-	print("TC::", type_check)
 	if type_check != "":
 		resolved_type = type_check
 	
@@ -297,7 +292,6 @@ func _add_dict_key_completions(_meta_dict:Dictionary):
 	
 	var show_extra_info = false # temp var, should be a setting.. this can probably be removed...
 	var key_location = CodeEdit.LOCATION_LOCAL
-	
 	
 	if member_access:
 		for key in valid_keys:
@@ -423,7 +417,7 @@ func meta_dict(params:={}):
 		params["meta"] = {}
 	return params
 
-
+#! keys i-meta_dict;
 func check_expression_for_meta(expression:String, line:int=-1):
 	var editor_parser:EditorGDScriptParser.GDScriptParser = EditorGDScriptParser.get_parser()
 
@@ -483,6 +477,7 @@ func check_expression_for_meta(expression:String, line:int=-1):
 				if parts.size() > i + 2:
 					for ti:int in range(i + 2, parts.size()):
 						tail = UString.dot_join(tail, parts[ti])
+			
 			
 			key = _get_meta_key(key)
 			var keys = meta.get("keys")
@@ -704,8 +699,12 @@ func test():
 		
 	})
 	
-	var d = AnotherTest.NestStruct.get_struct({
-		
-	})
+	var data = get_dict()
+	#data.vec
+	
+	#var d = AnotherTest.NestStruct.get_struct({
+		#
+	#})
+	
 	
 	pass

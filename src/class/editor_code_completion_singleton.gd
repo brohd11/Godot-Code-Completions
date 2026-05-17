@@ -1,5 +1,5 @@
 extends SingletonRefCount
-const SingletonRefCount = Singleton.RefCount
+const SingletonRefCount = Singletons.RefCount
 #! remote
 #! import_p UString,UClassDetail,
 
@@ -277,7 +277,7 @@ func _on_code_completion_requested() -> void:
 	for editor_code_completion in code_completions.keys():
 		var t2 = TimeFunction.new(str(editor_code_completion.get_script().resource_path.get_file()))
 		var handled = editor_code_completion._on_code_completion_requested(script_editor)
-		t2.stop()
+		#t2.stop()
 		if handled:
 			_reset_caret_context()
 			return

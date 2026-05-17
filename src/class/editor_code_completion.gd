@@ -12,7 +12,8 @@ const ParserKeys = GDScriptParser.Keys
 
 const TokenState = CaretContext.TokenState
 const ExpressionState = CaretContext.ExpressionState
-const GDScriptParser = UtilsRemote.EditorGDScriptParser.GDScriptParser
+const EditorGDScriptParser = UtilsRemote.EditorGDScriptParser
+const GDScriptParser = EditorGDScriptParser.GDScriptParser
 const CaretContext = GDScriptParser.CaretContext
 const ScopeState = CaretContext.ScopeState
 
@@ -140,8 +141,10 @@ func update_completion_options(force:=false):
 #endregion
 
 
-func get_gdscript_parser():
-	return singleton._editor_gdscript_parser
+func get_gdscript_parser(path:=""):
+	if path == "":
+		return singleton._editor_gdscript_parser
+	return EditorGDScriptParser.get_parser(path)
 
 func get_caret_context():
 	return singleton.get_caret_context()
@@ -567,5 +570,24 @@ class Helpers:
 		else:
 			return Colors.DEFAULT_COMPLETION
 	
+	
+	static func set_code_hint(code_completion:EditorCodeCompletion, base_type:String, func_name:String):
+		var func_data = GDScriptParser.BuiltInChecker.get_func_data(base_type, func_name)
+		var script_editor = code_completion.get_code_edit()
+		var func_call_data = code_completion.get_caret_context().get_function_call_data()
+		print(base_type, func_name)
+		print(func_data)
+		if func_data:
+			var func_args = func_data.get(ParserKeys.FUNC_ARGS)
+			var func_ret = func_data.get(ParserKeys.FUNC_RETURN)
+			if func_args.size() > func_call_data.current_arg_index:
+				var current_arg = func_args.keys()[func_call_data.current_arg_index]
+				var current_arg_data = func_args[current_arg]
+				var current_arg_type = current_arg_data.get(GDScriptParser.Keys.TYPE)
+				current_arg_type = current_arg_type.trim_prefix("enum::")
+				var code_hint = "%s %s(%s: %s)" % [func_ret, func_name, current_arg, current_arg_type]
+				script_editor.set_code_hint(code_hint)
+		
+		
 	
 	

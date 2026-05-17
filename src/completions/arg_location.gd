@@ -1,7 +1,6 @@
 extends EditorCodeCompletion
 
-const TagParser = ALibEditor.Singletons.TagParser
-const EditorGDScriptParser = ALibEditor.Singletons.EditorGDScriptParser
+const TagParser = UtilsRemote.TagParser
 
 const EditorColors = UtilsRemote.EditorColors
 const HLInfo = preload("uid://cfbf3hc1q2j3f") #! resolve SyntaxPlusSingleton.HLInfo
@@ -62,7 +61,7 @@ func _get_tags_in_line(tag_string:String):
 	return data
 
 
-func _on_code_completion_requested(script_editor:CodeEdit) -> bool:
+func _on_code_completion_requested(_script_editor:CodeEdit) -> bool:
 	var caret_context = get_caret_context()
 	if caret_context.token_state == CaretContext.TokenState.COMMENT:
 		return _comment_complete(caret_context)
@@ -95,24 +94,18 @@ func _function_call(caret_context:CaretContext):
 	
 	var function_call_data = caret_context.get_function_call_data()
 	var function_full_script = function_call_data.get_function_script()
-	if not function_full_script.begins_with("res://"):
+	if not GDScriptParser.Utils.is_absolute_path(function_full_script):
 		return false
 	
-	#var script_data = UString.get_script_path_and_suffix(function_full_script)
 	var function_location = GDScriptParser.Utils.type_path_add_member(function_full_script, function_call_data.get_function_name())
-	
 	var script_data = GDScriptParser.Utils.type_path_get_script_data(function_full_script)
 	var function_script_path = script_data[0]
 	var function_class_path = script_data[1]
 	
 	# check for metadata in the script where func is being called
 	var metadata = TagParser.get_metadata_for_type(function_location, TAG)
-	print("ARG LOCATION")
-	print(metadata)
 	if not metadata:
 		return false
-	
-	#ALibRuntime.DebugPrint.print_deb()
 	
 	var location_data = metadata.get(TAG)
 	var current_arg = function_call_data.func_get_current_arg()
@@ -141,19 +134,18 @@ func _function_call(caret_context:CaretContext):
 	if not resolved_target_type.begins_with("res://"):
 		return false # not a script, nothing we can do
 	
-
-	
 	var resolved_script_data = GDScriptParser.Utils.type_path_get_script_data(resolved_target_type)
 	var target_script_class_path = resolved_script_data[1]
 	
 	var target_parser_data = function_script_parser.get_parser_and_class_obj_for_script(resolved_target_type)
-	var target_script_parser = target_parser_data.parser
+	var target_script_parser = target_parser_data.parser as GDScriptParser
 	var target_class_obj = target_parser_data.class_obj
 	
-	
-	
+	var current_class_obj = caret_context.get_current_class_object()
 	var access_object = target_script_parser.resolve_to_access_object(declared_target_class)
-	var path_to_options = function_call_data.get_type_access_path(resolved_target_type, access_object)
+	var path_to_options = target_script_parser.get_access().find_path_to_type_simple(current_class_obj, access_object, resolved_target_type)
+	#var path_to_options = function_call_data.get_type_access_path(resolved_target_type, access_object)
+	
 	var valid_paths = {}
 	if path_to_options.global != "": valid_paths[path_to_options.global] = " [Global]"
 	if path_to_options.script_alias != "": valid_paths[path_to_options.script_alias] = " [Script Alias]"
@@ -166,11 +158,6 @@ func _function_call(caret_context:CaretContext):
 	#print("PATH TO ", path_to_options.standard)
 	#print("PATH TO ", path_to_options.script_alias)
 	#print("PATH TO ", path_to_options.global)
-	
-	#AnotherTest.test_arg(AnotherTest.TestArg.SomeMore.More)
-	#AnotherTest.TestArg.test_args(AnotherTest.TestArg.ARG, AnotherTest.Nest.MY_STRING)
-	
-	#ALibRuntime.DebugPrint.print_deb()
 	
 	var valid_classes = []
 	var deep_search = "d" in target_args or "deep" in target_args
@@ -218,10 +205,7 @@ func _function_call(caret_context:CaretContext):
 #^r this needs work to get proper scope. Completion works but the highlighting does not use parser
 
 func _syntax_highlighting(_script_editor:CodeEdit, current_line_text:String, line_idx:int, comment_tag_idx:int):
-	#var parser = get_gdscript_parser()
-	var path = get_current_script().resource_path
-	#print("ARG LOC::", path)
-	var parser = EditorGDScriptParser.get_parser(path)
+	var parser = get_gdscript_parser(get_current_script().resource_path)
 	var current_class = parser.get_class_at_line(line_idx)
 	var current_class_obj = parser.get_class_object(current_class) as GDScriptParser.ParserClass
 	if not is_instance_valid(current_class_obj):
@@ -291,7 +275,8 @@ func test_method(my_setting:String, test_2:String, another:String, one_more:Stri
 class Dart:
 	
 	func another():
-		test_nest(Nested.ANOTHER_VAL)
+		
+		
 		pass
 	
 	#! arg_location my_string:Nested
