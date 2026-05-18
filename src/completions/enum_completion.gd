@@ -87,7 +87,7 @@ func _function_call(caret_context:CaretContext):
 
 
 func _process_identifier(identifier:String):
-	print("ID>", identifier)
+	print_deb(T.ENUM, "ID>", identifier)
 	if not identifier.ends_with(ENUM_SUFFIX):
 		return false
 	
@@ -127,7 +127,7 @@ func _process_built_in_enum(identifier:String, force:=false):
 		enum_members = ClassDB.class_get_enum_constants(base_type, enum_name)
 	
 	print_deb(T.BUILT_IN, identifier, "->", base_type, enum_name, enum_members)
-	print("ENUM ACCESS::", access_path)
+	print_deb(T.ACCESS_PATH, "ENUM ACCESS::", access_path)
 	return _add_builtin_enum_code_completions(access_path, enum_members, [], force)
 
 func _is_identifier_built_in_enum(identifier:String):
@@ -216,7 +216,8 @@ func _add_custom_enum_members(script_data:Dictionary):
 	var gdscript_parser = get_gdscript_parser()
 	var enum_script_parser = gdscript_parser.get_parser_for_path(enum_main_script_path)
 	var enum_class_obj = enum_script_parser.get_class_object(enum_access) as GDScriptParser.ParserClass
-	print("ENUM MAIN SCRIPT::", enum_main_script_path, "::CLASS::", enum_class_obj.get_name(), "::", enum_name)
+	print_deb(T.ENUM, "ENUM MAIN SCRIPT", enum_main_script_path, "CLASS", enum_class_obj.get_name(), enum_name)
+	
 	var enum_members = enum_class_obj.get_enum_members(enum_name)
 	if enum_members == null:
 		return false
@@ -400,20 +401,17 @@ static func print_deb(section:String, ...msg:Array):
 		ALibEditor.PrintDebug.print(msg)
 
 const _PRINT = [
-	T.ACCESS_PATH, 
-	T.OBJECT_DATA,
+	#T.ACCESS_PATH,
+	#T.OBJECT_DATA,
 	#T.BUILT_IN,
-	T.ENUM,
+	#T.ENUM,
 	]
-
 
 class T:
 	const ENUM = "ENUM"
 	const BUILT_IN = "BUILT_IN"
 	const OBJECT_DATA = "OBJECT_DATA"
 	const ACCESS_PATH = "ENUM ACCESS PATH"
-
-
 
 
 

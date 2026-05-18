@@ -352,7 +352,7 @@ class Helpers:
 			
 			var class_data = class_data_array[i]
 			for member in class_data.keys():
-				if member == "class_name":
+				if member == GDScriptParser.BuiltInChecker.CLASS_NAME:
 					continue
 				var member_data:Dictionary = class_data[member]
 				var class_member_type:StringName = member_data.get(GDScriptParser.BuiltInChecker.MEMBER_TYPE)
