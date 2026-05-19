@@ -141,9 +141,12 @@ func _function_call(caret_context:CaretContext):
 	var target_script_parser = target_parser_data.parser as GDScriptParser
 	var target_class_obj = target_parser_data.class_obj
 	
+	var func_access_obj = parser.resolve_to_access_object(function_call_data.expression)
+	
 	var current_class_obj = caret_context.get_current_class_object()
 	var access_object = target_script_parser.resolve_to_access_object(declared_target_class)
-	var path_to_options = target_script_parser.get_access().find_path_to_type_simple(current_class_obj, access_object, resolved_target_type)
+	#var path_to_options = target_script_parser.get_access().find_path_to_type_simple(current_class_obj, access_object, resolved_target_type)
+	var path_to_options = target_script_parser.get_access().find_path_to_type(current_class_obj, func_access_obj, access_object, resolved_target_type, function_full_script)
 	#var path_to_options = function_call_data.get_type_access_path(resolved_target_type, access_object)
 	
 	var valid_paths = {}
