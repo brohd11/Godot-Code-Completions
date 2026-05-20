@@ -35,7 +35,7 @@ var arg_location:ArgLocation
 var dict_key:DictKey
 
 
-const TimeFunction = ALibRuntime.Utils.UProfile.TimeFunction #TODO erase
+const TF = preload("uid://ft7o6vspsurv") #! resolve ALibRuntime.Utils.UProfile.TimeFunction #TODO erase
 
 static func get_singleton_name() -> String:
 	return "EditorCodeCompletion"
@@ -271,11 +271,11 @@ func _on_code_completion_requested() -> void:
 	var script_editor = get_code_edit()
 	_reset_caret_context()
 	
-	var t = TimeFunction.new("MAIN CONTEXT")
+	var t = TF.new("MAIN CONTEXT")
 	_caret_context = _editor_gdscript_parser.get_caret_context()
 	#t.stop()
 	for editor_code_completion in code_completions.keys():
-		var t2 = TimeFunction.new(str(editor_code_completion.get_script().resource_path.get_file()))
+		var t2 = TF.new(str(editor_code_completion.get_script().resource_path.get_file()))
 		var handled = editor_code_completion._on_code_completion_requested(script_editor)
 		#t2.stop()
 		if handled:
@@ -414,15 +414,15 @@ func _build_global_script_constant_map():
 
 
 static func test():
-	var t = ALibRuntime.Utils.UProfile.TimeFunction.new("INNER")
+	var t = TF.new("INNER")
 	get_instance()._build_inner_class_map()
 	t.stop()
 	
-	var t2 = ALibRuntime.Utils.UProfile.TimeFunction.new("INNER")
+	var t2 = TF.new("INNER")
 	get_instance()._build_inner_class_mapU()
 	t2.stop()
 	
-	var t23 = ALibRuntime.Utils.UProfile.TimeFunction.new("INNER")
+	var t23 = TF.new("INNER")
 	var manager = InnerClassManager.new()
 	manager.build_inner_class_cache()
 	manager.queue_free()
