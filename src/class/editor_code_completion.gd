@@ -8,6 +8,8 @@ const UtilsRemote = EditorCodeCompletionSingleton.UtilsRemote
 const UClassDetail = UtilsRemote.UClassDetail
 const UString = UtilsRemote.UString
 
+const SettingHelperEditor = UtilsRemote.SettingHelperEditor
+
 const ParserKeys = GDScriptParser.Keys
 
 const TokenState = CaretContext.TokenState
@@ -52,6 +54,9 @@ func _get_completion_settings() -> Dictionary:
 func _singleton_ready() -> void:
 	pass
 
+func register_editor_settings(settings_helper:SettingHelperEditor):
+	return
+
 static func call_on_ready(callable:Callable):
 	EditorCodeCompletionSingleton.call_on_ready(callable)
 
@@ -62,7 +67,7 @@ static func register_tag_static(prefix:String, tag:String, location:=TagLocation
 		return
 	EditorCodeCompletionSingleton.get_instance().register_tag(prefix, tag, location)
 
-static func unregister_tag_static(prefix:String, tag:String, location:=TagLocation.ANY):
+static func unregister_tag_static(prefix:String, tag:String, _location:=TagLocation.ANY):
 	if not EditorCodeCompletionSingleton.instance_valid():
 		print("EditorCodeCompletionSingleton not instanced yet.")
 		return
@@ -120,13 +125,13 @@ func get_code_complete_dict(kind:CodeEdit.CodeCompletionKind, display_text:Strin
 		else:
 			icon = editor_theme.get_icon(&"Object", &"EditorIcons")
 	return {
-		"kind":kind,
-		"display_text":display_text,
-		"insert_text":insert_text,
-		"font_color":font_color,
-		"icon":icon,
-		"default_value":default_value,
-		"location":location,
+		&"kind":kind,
+		&"display_text":display_text,
+		&"insert_text":insert_text,
+		&"font_color":font_color,
+		&"icon":icon,
+		&"default_value":default_value,
+		&"location":location,
 	}
 
 func add_completion_option(script_editor:CodeEdit, option_dict:Dictionary) -> void:
@@ -150,39 +155,11 @@ func get_caret_context():
 	return singleton.get_caret_context()
 
 
-#^^^^ new
-
-
-
-#^ OLD
-
-
-func get_global_script_location(script:GDScript):
-	return singleton.get_global_script_location(script)
-
-
-
-
-
 func get_string_map(text:String):
 	return singleton.get_string_map(text)
 
-func get_script_member_info_by_path(script:GDScript, member_path:String, member_hints:=UClassDetail._MEMBER_ARGS, check_global:=true):
-	return UClassDetail.get_member_info_by_path(script, member_path, member_hints, false, false, false, check_global)
 
-func split_path(script_path:String):
-	return UString.get_script_path_and_suffix(script_path)
-
-
-#region settings
-func get_hide_private_members_setting():
-	return singleton.hide_private_members
-
-#endregion
-
-
-
-#^ cache
+#^ cache, these may be able to be removed...
 func _store_data(section, key, value, script, data_cache:Dictionary):
 	singleton._store_data_in_section(section, key, value, script, data_cache)
 

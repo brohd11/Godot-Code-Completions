@@ -2,6 +2,8 @@ extends EditorCodeCompletion
 
 #! import_p UClassDetail,
 
+const CONST_STRING_ENABLE = &"plugin/code_completion/const_string/enable"
+
 const Utils = GDScriptParser.Utils
 
 const TOKEN_STATES = [
@@ -9,17 +11,20 @@ const TOKEN_STATES = [
 	CaretContext.TokenState.STRING_NAME,
 ]
 
+var _enable:bool = true
 
 func _get_completion_settings() -> Dictionary:
 	return {
 		"priority": 100,
 	}
 
-func _on_editor_script_changed(_script):
-	pass
+func register_editor_settings(settings_helper:SettingHelperEditor):
+	settings_helper.subscribe_property(self, &"_enable", CONST_STRING_ENABLE, false)
 
 
 func _on_code_completion_requested(script_editor:CodeEdit) -> bool:
+	if not _enable:
+		return false
 	var caret_context = get_caret_context()
 	if not caret_context.token_state in TOKEN_STATES:
 		return false

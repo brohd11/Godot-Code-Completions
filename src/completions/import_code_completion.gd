@@ -27,6 +27,7 @@ const HINT_SEARCH_SCOPE = 10
 const CALL_WITH_ARGS = "(\u2026)"
 
 #^ editor settings
+var _enable:bool = true
 var hide_global_classes_setting:= false
 var hide_global_exemptions:Array = []
 
@@ -64,7 +65,7 @@ func _get_completion_settings() -> Dictionary:
 
 
 func _singleton_ready():
-	_init_set_settings()
+	#_init_set_settings()
 	
 	for prefix in _COMMENT_TAGS.keys():
 		var tag_data = _COMMENT_TAGS.get(prefix)
@@ -77,6 +78,20 @@ func _singleton_ready():
 				SyntaxPlusSingleton.register_highlight_callable(prefix, tag, callable, SyntaxPlusSingleton.CallableLocation.START)
 			register_tag(prefix, tag, TagLocation.START)
 
+
+func register_editor_settings(settings_helper:SettingHelperEditor):
+	settings_helper.subscribe_property(self, &"_enable", Settings.IMPORT_ENABLE, true)
+	settings_helper.subscribe_property(self, &"hide_private_members", Settings.HIDE_PRIVATE_PROP_SETTINGS, true)
+	settings_helper.subscribe_property(self, &"hide_global_classes_setting", Settings.HIDE_GLOBAL_SETTING, false)
+	settings_helper.subscribe_property(self, &"hide_global_exemptions", Settings.HIDE_GLOBAL_EXEMP_SETTING, [])
+	
+	var editor_settings = EditorInterface.get_editor_settings()
+	while not editor_settings.has_setting(Settings.HIDE_GLOBAL_EXEMP_SETTING):
+		await EditorInterface.get_base_control().get_tree().process_frame
+	
+	var hide_global_exemp = Settings.HIDE_GLOBAL_EXEMP_INFO.duplicate()
+	hide_global_exemp["hint_string"] = "%d:" % [TYPE_STRING]
+	editor_settings.add_property_info(hide_global_exemp)
 
 
 func _init_set_settings():
@@ -112,6 +127,9 @@ func _on_editor_script_changed(_script):
 
 
 func _on_code_completion_requested(script_editor:CodeEdit) -> bool:
+	if not _enable:
+		return false
+	
 	data_cache.clear() #^ caching seems ok, but can get stale
 	#^g test area ^^
 	
@@ -674,8 +692,9 @@ const _SKIP_DECLARATIONS = [
 ]
 
 class Settings:
+	const IMPORT_ENABLE = &"plugin/code_completion/import/enable"
 	const HIDE_GLOBAL_SETTING = &"plugin/code_completion/import/hide_global_classes"
-	const HIDE_PRIVATE_PROP_SETTINGS = EditorCodeCompletion.EditorCodeCompletionSingleton.EditorSet.HIDE_PRIVATE_PROP_SETTING
+	const HIDE_PRIVATE_PROP_SETTINGS = EditorCodeCompletion.EditorCodeCompletionSingleton.HidePrivateCompletion._HIDE_PRIVATE_PROP_SETTING
 	
 	const HIDE_GLOBAL_EXEMP_SETTING = &"plugin/code_completion/import/hide_global_exemptions"
 	const HIDE_GLOBAL_EXEMP_INFO = {

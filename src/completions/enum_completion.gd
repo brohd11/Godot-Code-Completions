@@ -7,32 +7,21 @@ const CacheHelper = EditorCodeCompletionSingleton.CacheHelper
 const ENUM_SUFFIX = ParserKeys.ENUM_PATH_SUFFIX
 
 var enum_enable:= false
-var show_member_suggestions:= false
-var show_alias_only:=false
+
+var show_member_suggestions:= false # not currently used
+var show_alias_only:=false # not currently used
 
 var comp_object:Object
 
 
 func _singleton_ready():
-	_init_set_settings()
+	pass
 
-func _init_set_settings():
-	var ed_settings = EditorInterface.get_editor_settings()
-	if not ed_settings.has_setting(EditorSet.ENUM_ENABLE):
-		ed_settings.set_setting(EditorSet.ENUM_ENABLE, false)
-	if not ed_settings.has_setting(EditorSet.SHOW_MEMBER_SUGGESTIONS):
-		ed_settings.set_setting(EditorSet.SHOW_MEMBER_SUGGESTIONS, false)
-	if not ed_settings.has_setting(EditorSet.SHOW_ALIAS_ONLY):
-		ed_settings.set_setting(EditorSet.SHOW_ALIAS_ONLY, false)
-	
-	_set_settings()
-	ed_settings.settings_changed.connect(_set_settings)
+func register_editor_settings(settings_helper:SettingHelperEditor):
+	settings_helper.subscribe_property(self, &"enum_enable", EditorSet.ENUM_ENABLE, true)
+	settings_helper.subscribe_property(self, &"show_member_suggestions", EditorSet.SHOW_MEMBER_SUGGESTIONS, true)
+	#settings_helper.subscribe_property(self, &"show_alias_only", EditorSet.SHOW_ALIAS_ONLY, true)
 
-func _set_settings():
-	var ed_settings = EditorInterface.get_editor_settings()
-	enum_enable = ed_settings.get_setting(EditorSet.ENUM_ENABLE)
-	show_member_suggestions = ed_settings.get_setting(EditorSet.SHOW_MEMBER_SUGGESTIONS)
-	show_alias_only = ed_settings.get(EditorSet.SHOW_ALIAS_ONLY)
 
 func _on_code_completion_requested(_script_editor:CodeEdit) -> bool:
 	if not enum_enable:
@@ -128,7 +117,8 @@ func _process_built_in_enum(identifier:String, force:=false):
 	
 	print_deb(T.BUILT_IN, identifier, "->", base_type, enum_name, enum_members)
 	print_deb(T.ACCESS_PATH, "ENUM ACCESS::", access_path)
-	return _add_builtin_enum_code_completions(access_path, enum_members, [], force)
+	var enum_vars = _get_enum_vars(identifier + ENUM_SUFFIX)
+	return _add_builtin_enum_code_completions(access_path, enum_members, enum_vars, force)
 
 func _is_identifier_built_in_enum(identifier:String):
 	var front = identifier
@@ -181,25 +171,12 @@ func _process_script_enum(enum_path:String, force:=false):
 	return _add_custom_enum_members(script_data)
 
 func get_enum_script_data(class_path:String):
-	
-	var enum_class_path = GDScriptParser.Utils.type_path_get_non_member(class_path)
-	var script_data = split_path(enum_class_path)
+	#var enum_class_path = GDScriptParser.Utils.type_path_get_non_member(class_path)
+	#var script_data = split_path(enum_class_path)
+	var script_data = GDScriptParser.Utils.type_path_get_script_data(class_path)
 	var script_path = script_data[0]
 	var enum_access = script_data[1]
 	var enum_name = GDScriptParser.Utils.type_path_get_member(class_path)
-	
-	
-	#var path_data = split_path(class_path) # need to fix this probably
-	#print(class_path)
-	#if path_data.is_empty():
-		#return {}
-	#var script_path = path_data[0]
-	#var suffix = path_data[1]
-	#var enum_access = ""
-	#var enum_name = suffix
-	#if suffix.find(".") > -1:
-		#enum_name = UString.get_member_access_back(suffix)
-		#enum_access = UString.trim_member_access_back(suffix)
 	
 	return {"enum_full_path": class_path, "enum_script_path": script_path, "enum_access":enum_access, "enum_name":enum_name}
 
@@ -239,12 +216,14 @@ func _add_custom_enum_members(script_data:Dictionary):
 		#if access_options.global.ends_with(e) and e != enum_name:
 			#access_options.global = access_options.global.trim_suffix(e).trim_suffix(".")
 	
+	# ensure the standard path is valid
 	var resolved = gdscript_parser.resolve_expression_to_type(access_options.standard, get_caret_context().caret_line)
 	if not resolved.ends_with(enum_name + ENUM_SUFFIX):
 		access_options.standard = ""
 		print_deb(T.ACCESS_PATH, "ENUM RES CHECK", resolved)
 	
-	return _add_enum_code_completions(access_options.standard, enum_members.keys(), [], force, access_options.script_alias, access_options.global)
+	var enum_vars = _get_enum_vars(script_data.get("enum_full_path"))
+	return _add_enum_code_completions(access_options.standard, enum_members.keys(), enum_vars, force, access_options.script_alias, access_options.global)
 
 #endregion
 
@@ -295,8 +274,8 @@ func _add_enum_code_completions(access_path:String, enum_members:Array, other_op
 	
 	if not other_options.is_empty():
 		var prop_icon = EditorInterface.get_editor_theme().get_icon("MemberProperty", "EditorIcons")
-		for option in other_options:
-			script_editor.add_code_completion_option(CodeEdit.KIND_VARIABLE, option, option, Color.GRAY, prop_icon)
+		for option in other_options: # 4096 will place this last
+			script_editor.add_code_completion_option(CodeEdit.KIND_VARIABLE, option, option, Color.GRAY, prop_icon, null, 4096)
 	
 	script_editor.update_code_completion_options(force_update)
 	return true
@@ -305,100 +284,44 @@ func _add_enum_code_completions(access_path:String, enum_members:Array, other_op
 
 #region Needs Work
 
-func _get_enum_vars(processed_data:Dictionary) -> Array:
+func _get_enum_vars(enum_type_path:String) -> Array:
 	if not show_member_suggestions:
 		return []
-	#var t = ALibRuntime.Utils.UProfile.TimeFunction.new("Get enum vars")
-	var current_class = get_caret_context().current_class
-	var current_assigned = ""
-	#if get_state() == State.ASSIGNMENT:
-		#var assignment_data = get_assignment_at_caret()
-		#var left = assignment_data.get(Assignment.LEFT, "")
-		#if left.find(".") == -1 or left.begins_with("var "):
-			#if not left.begins_with("var "):
-				#left = "var " + left
-			#var var_data = UString.get_var_name_and_type_hint_in_line(left) # moved to UString.GDScriptParse
-			#current_assigned = var_data[0]
 	
-	var enum_class_string = processed_data.enum_class
-	var enum_script = processed_data.enum_script
-	var member_path = processed_data.member_path
-	var enum_data = processed_data.enum_data
+	if not enum_type_path.ends_with(ENUM_SUFFIX):
+		enum_type_path += ENUM_SUFFIX
 	
-	var enum_script_path = ""
-	if enum_script != null:
-		enum_script_path = enum_script.resource_path
-	var option_dict = {}
-	#print("GET ENUM VARS: ", enum_class_string)
+	# ideally this would not list the current var
+	var valid = []
+	var caret_context = get_caret_context()
+	var current_class_obj = caret_context.get_current_class_object()
+	for m in current_class_obj.get_members():
+		var member_data = current_class_obj.get_member_data(m, true)
+		if not member_data.get(ParserKeys.MEMBER_TYPE, "").ends_with("var"):
+			continue
+		var type = current_class_obj.get_member_type(m)
+		if type == enum_type_path:
+			valid.append(m)
 	
-	var script_editor = get_code_edit()
-	var current_line = script_editor.get_caret_line()
+	var current_func_obj = caret_context.get_current_func_object()
+	if is_instance_valid(current_func_obj):
+		for key in caret_context.local_vars.keys():
+			var member_data = caret_context.local_vars.get(key)
+			var line_idx = member_data.get(ParserKeys.LINE_INDEX)
+			var type = current_func_obj.get_local_var_type(line_idx, key)
+			if type == enum_type_path:
+				valid.append(key)
 	
-	#var current_vars = get_in_scope_body_and_local_vars()
-	var current_vars = []
-	var body_vars = current_vars.body
-	var local_vars = current_vars.local
-	for name in body_vars.keys():
-		if name == current_assigned:
-			continue
-		if name == enum_class_string or name == member_path: # if name is the class, likely the enum defined as const
-			continue
-		var data = body_vars.get(name)
-		if not data is Dictionary:
-			continue
-		if not data.has(""):
-			continue
-		var type = data.get("")
-		if type == enum_class_string or type == member_path:
-			option_dict[name] = true
-	for name in local_vars.keys():
-		var data = local_vars.get(name)
-		if not data is Dictionary:
-			continue
-		if not data.has(""):
-			continue
-		var type = data.get("")
-		if type == enum_class_string or type == member_path:
-			if name.find("%") > -1:
-				name = name.substr(0, name.find("%"))
-			if name == current_assigned:
-				continue
-			option_dict[name] = true
-	
-	var current_script = get_current_script()
-	if current_class != "":
-		current_script = get_script_member_info_by_path(current_script, current_class)
-		if current_script == null:
-			return option_dict.keys()
-	
-	var properties = UClassDetail.script_get_all_properties(current_script, UClassDetail.IncludeInheritance.ALL)
-	for p in properties.keys():
-		if p == current_assigned:
-			continue
-		var data = properties.get(p)
-		#if not _is_property_info_enum(data):
-			#continue
-		var _class_name = data.get("class_name")
-		#print(_class_name, " ", enum_class_string, " ",member_path)
-		if _class_name == enum_class_string:
-			option_dict[p] = true
-			continue
-		if enum_script_path != "":
-			if _class_name.begins_with(enum_script_path):
-				option_dict[p] = true
-	
-	
-	#t.stop()
-	return option_dict.keys()
+	return valid
 
 #endregion
 
-
+const PrintDebug = preload("uid://d1ki8cxxh7lvb") #! resolve ALibEditor.PrintDebug
 #! arg_location section:T
 static func print_deb(section:String, ...msg:Array):
 	if section in _PRINT:
 		msg.push_front(section)
-		ALibEditor.PrintDebug.print(msg)
+		PrintDebug.print(msg)
 
 const _PRINT = [
 	#T.ACCESS_PATH,

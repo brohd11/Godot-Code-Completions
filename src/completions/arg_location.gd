@@ -5,10 +5,14 @@ const TagParser = UtilsRemote.TagParser
 const EditorColors = UtilsRemote.EditorColors
 const HLInfo = preload("uid://cfbf3hc1q2j3f") #! resolve SyntaxPlusSingleton.HLInfo
 
+const ARG_LOCATION_ENABLE = &"plugin/code_completion/arg_location/enable"
+
 const TAG = &"arg_location"
 
 const TAG_ARGS = ["d", "deep"]
 const _BAD_SYM_COLOR = Color.FIREBRICK
+
+var _enable:bool = true
 
 var _comment_color:Color
 var _text_color:Color
@@ -18,16 +22,16 @@ var _global_color:Color
 
 
 func _singleton_ready() -> void:
-	#EditorCodeCompletion.unregister_tag_static("#!", TAG)
 	EditorCodeCompletion.register_tag_static("#!", TAG, EditorCodeCompletionSingleton.TagLocation.ANY)
-	
-	#SyntaxPlusSingleton.unregister_highlight_callable("#!", TAG)
 	SyntaxPlusSingleton.register_highlight_callable("#!", TAG, _syntax_highlighting, SyntaxPlusSingleton.CallableLocation.ANY)
 	
 	TagParser.register_tag_parser(TAG, self)
 	
 	_on_editor_settings_changed()
 	EditorInterface.get_editor_settings().settings_changed.connect(_on_editor_settings_changed)
+
+func register_editor_settings(settings_helper:SettingHelperEditor):
+	settings_helper.subscribe_property(self, &"_enable", ARG_LOCATION_ENABLE, true)
 
 func _on_editor_settings_changed():
 	_comment_color = EditorColors.get_syntax_color(EditorColors.SyntaxColor.COMMENT)
@@ -62,6 +66,8 @@ func _get_tags_in_line(tag_string:String):
 
 
 func _on_code_completion_requested(_script_editor:CodeEdit) -> bool:
+	if not _enable:
+		return false
 	var caret_context = get_caret_context()
 	if caret_context.token_state == CaretContext.TokenState.COMMENT:
 		return _comment_complete(caret_context)

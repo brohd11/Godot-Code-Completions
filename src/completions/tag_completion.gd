@@ -5,10 +5,6 @@ func _get_completion_settings() -> Dictionary:
 		"priority": 1,
 	}
 
-func _on_editor_script_changed(script):
-	pass
-
-
 func _on_code_completion_requested(script_editor:CodeEdit) -> bool:
 	var caret_context = get_caret_context()
 	if caret_context.token_state != CaretContext.TokenState.COMMENT:

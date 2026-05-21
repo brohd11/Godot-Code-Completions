@@ -12,7 +12,7 @@ const MODIFIERS = ["clean", "sort"]
 
 const DICT_FUNCS_TO_SHOW = ["get", "erase", "get_or_add", "has"]
 
-var _setting_helper:SettingHelper
+#var _setting_helper:SettingHelper
 var _enable:bool = true
 var _prefer_lua_style:bool = false
 var _prefer_string_name:bool = true
@@ -25,13 +25,11 @@ func _singleton_ready() -> void:
 	SyntaxPlusSingleton.register_highlight_callable(PREFIX, TAG, _syntax_highlighting, SyntaxPlusSingleton.CallableLocation.ANY)
 	
 	TagParser.register_tag_parser(TAG, self)
-	
-	_setting_helper = SettingHelper.new()
-	_setting_helper.subscribe_property(self, &"_enable", EditorSet.ENABLE, true)
-	_setting_helper.subscribe_property(self, &"_prefer_lua_style", EditorSet.PREFER_LUA_STYLE, false)
-	_setting_helper.subscribe_property(self, &"_prefer_string_name", EditorSet.PREFER_STRING_NAME, true)
-	_setting_helper.initialize()
 
+func register_editor_settings(settings_helper:SettingHelperEditor):
+	settings_helper.subscribe_property(self, &"_enable", EditorSet.ENABLE, true)
+	settings_helper.subscribe_property(self, &"_prefer_lua_style", EditorSet.PREFER_LUA_STYLE, false)
+	settings_helper.subscribe_property(self, &"_prefer_string_name", EditorSet.PREFER_STRING_NAME, true)
 
 func parse_tag(raw_tags:Dictionary) -> Dictionary:
 	var mods_string = raw_tags.get("mods", "")
