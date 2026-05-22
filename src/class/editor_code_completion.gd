@@ -220,6 +220,8 @@ class Helpers:
 			var class_obj = current_parser.get_class_object(resolved_inner_class) as GDScriptParser.ParserClass
 			for c in class_obj.get_gdscript_constants():
 				var member_data = class_obj.get_member(c)
+				if not member_data:
+					continue
 				var access_path = member_data.get(ParserKeys.ACCESS_PATH)
 				#if class_obj.access_path != "": # should be find without
 				if not access_path.begins_with(class_obj.access_path):
