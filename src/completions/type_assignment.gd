@@ -25,6 +25,8 @@ func _on_code_completion_requested(script_editor:CodeEdit) -> bool:
 	
 	# import data grabbed from import_code_completion
 	var import_data = get_data("import_data")
+	if import_data == null:
+		import_data = {}
 	var hide_global_classes = import_data.get("hide_global_classes_setting", false)
 	var show_global_classes = import_data.get("show_global_classes", {})
 	#var imported_classes = import_data.get("imported_classes")
