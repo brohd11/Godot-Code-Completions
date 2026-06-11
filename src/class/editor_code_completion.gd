@@ -509,7 +509,7 @@ class Helpers:
 		#var expression = UString.trim_member_access_back(class_path)
 		
 		var resolved = caret_context.resolve_expression_to_type(expression)
-		print("GLOBAL RESOLVED::", resolved)
+		#print("GLOBAL RESOLVED::", resolved)
 		if GDScriptParser.BuiltInChecker.is_variant_type(resolved) or GDScriptParser.BuiltInChecker.is_builtin_class(resolved):
 			pass
 		elif GDScriptParser.Utils.type_path_get_member(resolved) != "":
@@ -530,7 +530,7 @@ class Helpers:
 				#if target_class_obj.access_path != "": # should be find without
 				if not access_path.begins_with(target_class_obj.access_path):
 					continue
-				print("ADDING GLOBAL::", c)
+				#print("ADDING GLOBAL::", c)
 				var dict = code_completion.get_code_complete_dict(CodeEdit.CodeCompletionKind.KIND_CONSTANT, c, c, "GDScriptInternal")
 				code_completion.add_completion_option(script_editor, dict)
 		
