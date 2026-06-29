@@ -609,6 +609,8 @@ func _syntax_highlighting(_script_editor:CodeEdit, current_line_text:String, lin
 	
 	#var gdscript_parser = EditorGDScriptParser.get_parser()
 	var gdscript_parser = SyntaxPlusSingleton.get_gdscript_parser() # use this one since it just needs the members, no type inference
+	if not is_instance_valid(gdscript_parser):
+		return {}
 	var current_class = gdscript_parser.get_class_at_line(line_idx)
 	var current_class_obj = gdscript_parser.get_class_object(current_class) as GDScriptParser.ParserClass
 	var script_class_path = current_class_obj.get_script_class_path()
