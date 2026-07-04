@@ -215,6 +215,8 @@ func _function_call(caret_context:CaretContext):
 
 func _syntax_highlighting(_script_editor:CodeEdit, current_line_text:String, line_idx:int, comment_tag_idx:int):
 	var parser = get_gdscript_parser(get_current_script().resource_path)
+	if not is_instance_valid(parser):
+		return {}
 	var current_class = parser.get_class_at_line(line_idx)
 	var current_class_obj = parser.get_class_object(current_class) as GDScriptParser.ParserClass
 	if not is_instance_valid(current_class_obj):

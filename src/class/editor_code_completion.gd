@@ -275,7 +275,7 @@ class Helpers:
 				type = caret_context.get_current_class_object().get_script_class_path()
 			
 			
-		print("TRIMMED::", type)
+		#print("TRIMMED::", type)
 		return class_completion_from_type(code_completion, type, caret_context.get_current_class_object(), params)
 	
 	static func class_completion_from_type(code_completion:EditorCodeCompletion, type:String, class_obj:GDScriptParser.ParserClass, params:=completion_params()):
@@ -305,12 +305,12 @@ class Helpers:
 				exit = built_in_completion(code_completion, resolved_type, is_instance, params)
 		elif GDScriptParser.Utils.is_absolute_path(resolved_type):
 			if params.allow_user_type:
-				print("ADD USER")
+				#print("ADD USER")
 				exit = user_class_completion(code_completion, resolved_type, is_instance, false, params)
 		
 		
 		if params.global_include:
-			print("ADD GLOBVSAL")
+			#print("ADD GLOBVSAL")
 			add_global_classes_completion(code_completion, params)
 			exit = true
 		
@@ -453,7 +453,7 @@ class Helpers:
 						if full_access_path != main_class_path:
 							var next_parser = parser.get_parser_and_class_obj_for_script(full_access_path)
 							func_class_obj = next_parser.class_obj
-							print(class_obj.get_script_class_path(), " -> ", func_class_obj.get_script_class_path())
+							#print(class_obj.get_script_class_path(), " -> ", func_class_obj.get_script_class_path())
 						
 						var func_obj = func_class_obj.get_function(member) as GDScriptParser.ParserFunc
 						if func_obj.get_arguments().is_empty():
@@ -554,8 +554,9 @@ class Helpers:
 		var func_data = GDScriptParser.BuiltInChecker.get_func_data(base_type, func_name)
 		var script_editor = code_completion.get_code_edit()
 		var func_call_data = code_completion.get_caret_context().get_function_call_data()
-		print(base_type, func_name)
-		print(func_data)
+		#print(base_type, func_name)
+		#print(func_data)
+		
 		if func_data:
 			var func_args = func_data.get(ParserKeys.FUNC_ARGS)
 			var func_ret = func_data.get(ParserKeys.FUNC_RETURN)
