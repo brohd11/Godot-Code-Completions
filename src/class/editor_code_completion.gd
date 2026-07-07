@@ -147,7 +147,7 @@ func update_completion_options(force:=false):
 
 
 func get_gdscript_parser(path:=""):
-	if path == "":
+	if path == "": # could probably just run the static below
 		return singleton._editor_gdscript_parser
 	return EditorGDScriptParser.get_parser(path)
 

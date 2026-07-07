@@ -418,6 +418,8 @@ func meta_dict(params:={}):
 #! keys i-meta_dict;
 func check_expression_for_meta(expression:String, line:int=-1):
 	var editor_parser:EditorGDScriptParser.GDScriptParser = EditorGDScriptParser.get_parser()
+	if not is_instance_valid(editor_parser):
+		return {}
 
 	var parts:Array = UString.split_member_access(expression)
 	var working_path:String = ""
@@ -521,6 +523,9 @@ func get_meta_for_type(type_origin_string:String):
 		return
 	
 	var parser = EditorGDScriptParser.get_parser()
+	if not is_instance_valid(parser):
+		return
+	
 	var next_parser_data = parser.get_parser_and_class_obj_for_script(type_origin_string)
 	if not next_parser_data:
 		return
@@ -579,7 +584,10 @@ func _get_local_var_function_data(type_rich:Dictionary, limit_to_arg:=true):
 	var local_var_data = GDScriptParser.Utils.type_path_get_local_var(back)
 	if not local_var_data:
 		return ""
-	var parser_data = EditorGDScriptParser.get_parser().get_parser_and_class_obj_for_script(back)
+	var ed_parser = EditorGDScriptParser.get_parser()
+	if not is_instance_valid(ed_parser):
+		return ""
+	var parser_data = ed_parser.get_parser_and_class_obj_for_script(back)
 	var class_obj = parser_data.class_obj as GDScriptParser.ParserClass
 	var func_obj = class_obj.get_function(class_obj.get_function_at_line(local_var_data.line))
 	if limit_to_arg:
@@ -589,6 +597,8 @@ func _get_local_var_function_data(type_rich:Dictionary, limit_to_arg:=true):
 
 func resolve_tagged_expression(expression:String, line:int=-1):
 	var editor_parser = EditorGDScriptParser.get_parser()
+	if not is_instance_valid(editor_parser):
+		return ""
 	var meta = check_expression_for_meta(expression, line)
 	
 	var sim_call = meta.get("simulated_call", INVALID_ACCESS)
