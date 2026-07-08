@@ -48,7 +48,7 @@ func _operator(caret_context:CaretContext):
 	var op_data = caret_context.get_operation_data()
 	comp_object = op_data
 	
-	print_deb(T.ENUM, "OPERATOR", op_data.left_symbol_data.type)
+	print_deb(T.ENUM, ["OPERATOR", op_data.left_symbol_data.type])
 	return _process_identifier(op_data.left_symbol_data.type)
 
 func _match_branch(caret_context:CaretContext):
@@ -71,12 +71,12 @@ func _function_call(caret_context:CaretContext):
 	var current_arg = func_data.func_get_current_arg()
 	comp_object = func_data
 	
-	print_deb(T.ENUM, "FUNC", current_arg.type)
+	print_deb(T.ENUM, ["FUNC", current_arg.type])
 	return _process_identifier(current_arg.type)
 
 
 func _process_identifier(identifier:String):
-	print_deb(T.ENUM, "ID>", identifier)
+	print_deb(T.ENUM, ["ID>", identifier])
 	if not identifier.ends_with(ENUM_SUFFIX):
 		return false
 	
@@ -115,8 +115,8 @@ func _process_built_in_enum(identifier:String, force:=false):
 			return false
 		enum_members = ClassDB.class_get_enum_constants(base_type, enum_name)
 	
-	print_deb(T.BUILT_IN, identifier, "->", base_type, enum_name, enum_members)
-	print_deb(T.ACCESS_PATH, "ENUM ACCESS::", access_path)
+	print_deb(T.BUILT_IN, [identifier, "->", base_type, enum_name, enum_members])
+	print_deb(T.ACCESS_PATH, ["ENUM ACCESS::", access_path])
 	var enum_vars = _get_enum_vars(identifier + ENUM_SUFFIX)
 	return _add_builtin_enum_code_completions(access_path, enum_members, enum_vars, force)
 
@@ -163,7 +163,7 @@ func _process_script_enum(enum_path:String, force:=false):
 		return false
 	enum_path = enum_path.trim_suffix(ENUM_SUFFIX)
 	var script_data = get_enum_script_data(enum_path)
-	print_deb(T.OBJECT_DATA, script_data)
+	print_deb(T.OBJECT_DATA, [script_data])
 	
 	if script_data.is_empty():
 		return false
@@ -193,7 +193,7 @@ func _add_custom_enum_members(script_data:Dictionary):
 	var gdscript_parser = get_gdscript_parser()
 	var enum_script_parser = gdscript_parser.get_parser_for_path(enum_main_script_path)
 	var enum_class_obj = enum_script_parser.get_class_object(enum_access) as GDScriptParser.ParserClass
-	print_deb(T.ENUM, "ENUM MAIN SCRIPT", enum_main_script_path, "CLASS", enum_class_obj.get_name(), enum_name)
+	print_deb(T.ENUM, ["ENUM MAIN SCRIPT", enum_main_script_path, "CLASS", enum_class_obj.get_name(), enum_name])
 	
 	var enum_members = enum_class_obj.get_enum_members(enum_name)
 	if enum_members == null:
@@ -201,26 +201,22 @@ func _add_custom_enum_members(script_data:Dictionary):
 	
 	var access_options = comp_object.get_type_access_path()
 	
-	print_deb(T.ACCESS_PATH, "ACCESS", access_options)
-	print_deb(T.ACCESS_PATH, "STANDARD", access_options.standard)
-	print_deb(T.ACCESS_PATH, "SCRIPT ALIAS", access_options.script_alias)
-	print_deb(T.ACCESS_PATH, "GLOBAL NAME", access_options.global)
+	print_deb(T.ACCESS_PATH, ["ACCESS", access_options])
+	print_deb(T.ACCESS_PATH, ["STANDARD", access_options.standard])
+	print_deb(T.ACCESS_PATH, ["SCRIPT ALIAS", access_options.script_alias])
+	print_deb(T.ACCESS_PATH, ["GLOBAL NAME", access_options.global])
 	
 	for e in enum_members:
 		if access_options.standard.begins_with("self."):
 			access_options.standard = access_options.standard.trim_prefix("self.")
 		if access_options.standard.ends_with(e) and e != enum_name:
 			access_options.standard = access_options.standard.trim_suffix(e).trim_suffix(".")
-		#if access_options.script_alias.ends_with(e) and e != enum_name:
-			#access_options.script_alias = access_options.script_alias.trim_suffix(e).trim_suffix(".")
-		#if access_options.global.ends_with(e) and e != enum_name:
-			#access_options.global = access_options.global.trim_suffix(e).trim_suffix(".")
 	
 	# ensure the standard path is valid
 	var resolved = gdscript_parser.resolve_expression_to_type(access_options.standard, get_caret_context().caret_line)
 	if not resolved.ends_with(enum_name + ENUM_SUFFIX):
 		access_options.standard = ""
-		print_deb(T.ACCESS_PATH, "ENUM RES CHECK", resolved)
+		print_deb(T.ACCESS_PATH, ["ENUM RES CHECK", resolved])
 	
 	var enum_vars = _get_enum_vars(script_data.get("enum_full_path"))
 	return _add_enum_code_completions(access_options.standard, enum_members.keys(), enum_vars, force, access_options.script_alias, access_options.global)
@@ -306,9 +302,8 @@ func _get_enum_vars(enum_type_path:String) -> Array:
 	var current_func_obj = caret_context.get_current_func_object()
 	if is_instance_valid(current_func_obj):
 		for key in caret_context.local_vars.keys():
-			var member_data = caret_context.local_vars.get(key)
-			var line_idx = member_data.get(ParserKeys.LINE_INDEX)
-			var type = current_func_obj.get_local_var_type(line_idx, key)
+			#var member_data = caret_context.local_vars.get(key)
+			var type = current_func_obj.get_local_var_type(key)
 			if type == enum_type_path:
 				valid.append(key)
 	
@@ -318,7 +313,7 @@ func _get_enum_vars(enum_type_path:String) -> Array:
 
 const PrintDebug = preload("uid://d1ki8cxxh7lvb") #! resolve ALibEditor.PrintDebug
 #! arg_location section:T
-static func print_deb(section:String, ...msg:Array):
+static func print_deb(section:String, msg:Array):
 	if section in _PRINT:
 		msg.push_front(section)
 		PrintDebug.print(msg)

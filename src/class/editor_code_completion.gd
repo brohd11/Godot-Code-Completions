@@ -46,6 +46,8 @@ func _init() -> void:
 	
 	editor_theme = EditorInterface.get_editor_theme()
 
+## Settings for the Singleton. Current Settings:
+## priority:int
 func _get_completion_settings() -> Dictionary:
 	return {
 		"priority": 100,

@@ -39,7 +39,7 @@ var dict_key:DictKey
 const TF = preload("uid://ft7o6vspsurv") #! resolve ALibRuntime.Utils.UProfile.TimeFunction #TODO erase
 
 static func get_singleton_name() -> String:
-	return "EditorCodeCompletion"
+	return "EditorCodeCompletionSingleton"
 
 static func get_instance() -> PE_STRIP_CAST_SCRIPT:
 	return _get_instance(PE_STRIP_CAST_SCRIPT)

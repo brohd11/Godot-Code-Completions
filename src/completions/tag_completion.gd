@@ -1,5 +1,6 @@
 extends EditorCodeCompletion
 
+
 func _get_completion_settings() -> Dictionary:
 	return {
 		"priority": 1,

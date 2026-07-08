@@ -695,26 +695,17 @@ const SortedDict = {
 	"key5": "",
 }
 
+#! keys i-NewScript.create_dict; another_key:String
+var inh_dict = {}
+
 #! keys string:String vec:Vector2 material:StandardMaterial3D
 static func get_dict(params:Dictionary={}):
 	if not params.has("string"):
 		params["string"] = "DefaultVal"
 	return params
 
-#! keys i-NewScript.create_dict; another_key:String
-var inh_dict = {}
-
 func test():
-	get_dict({
-		
-	})
-	
-	var data = get_dict()
-	#data.vec
-	
-	#var d = AnotherTest.NestStruct.get_struct({
+	#var data = get_dict({
 		#
 	#})
-	
-	
 	pass
