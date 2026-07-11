@@ -137,10 +137,9 @@ func _standard_completion(_script_editor:CodeEdit, caret_context:CaretContext) -
 		var func_call_data = caret_context.get_function_call_data()
 		var func_name = func_call_data.get_function_name()
 		var function_path = func_call_data.get_function_script()
-		
 		# absolute path, check for data with the current accessed func
 		if GDScriptParser.Utils.is_absolute_path(function_path):
-			if func_name in DICT_FUNCS_TO_SHOW:
+			if func_name in DICT_FUNCS_TO_SHOW: # ALERT this needs to be in the others I think
 				if func_call_data.current_arg_index > 0:
 					return false
 			function_path = GDScriptParser.Utils.type_path_add_member(function_path, func_name)
@@ -265,8 +264,10 @@ func _add_dict_key_completions(_meta_dict:Dictionary):
 			script_editor.update_code_completion_options(false)
 			return false
 		
-		var dict = caret_context.code_context.substr(caret_context.code_context.find("{") + 1)
-		dict = dict.substr(0, UString.rfind_index_safe(dict, "}")).strip_edges()
+		var tightest_open = caret_context.code_context_string_map.get_tightest_bracket_set(caret_context.code_context_caret_pos, "{")
+		var tightest_close = caret_context.code_context_string_map.bracket_map[tightest_open]
+		tightest_open += 1
+		var dict = caret_context.code_context.substr(tightest_open, tightest_close - tightest_open).strip_edges()
 		var tokens = UString.Token.tokenize_string(dict).get("tokens")
 		var in_assign = false
 		for t in tokens:
@@ -620,9 +621,11 @@ func _syntax_highlighting(_script_editor:CodeEdit, current_line_text:String, lin
 	#var gdscript_parser = EditorGDScriptParser.get_parser()
 	var gdscript_parser = SyntaxPlusSingleton.get_gdscript_parser() # use this one since it just needs the members, no type inference
 	if not is_instance_valid(gdscript_parser):
-		return {}
+		return {0:SyntaxPlusSingleton.get_hl_info_dict(SyntaxPlusSingleton.get_instance().comment_color)}
 	var current_class = gdscript_parser.get_class_at_line(line_idx)
 	var current_class_obj = gdscript_parser.get_class_object(current_class) as GDScriptParser.ParserClass
+	if not is_instance_valid(current_class_obj):
+		return {0:SyntaxPlusSingleton.get_hl_info_dict(SyntaxPlusSingleton.get_instance().comment_color)}
 	var script_class_path = current_class_obj.get_script_class_path()
 	
 	var sp_ins = SyntaxPlusSingleton.get_instance()

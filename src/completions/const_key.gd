@@ -47,10 +47,13 @@ func _on_code_completion_requested(script_editor:CodeEdit) -> bool:
 	if access_name != "":
 		var full_access = access_name.path_join(const_name)
 		var full_script = script_name.path_join(full_access)
+		var short_script = script_name.path_join(const_name)
 		full_access = full_access.replace("/", ".")
 		full_script = full_script.replace("/", ".")
+		short_script = short_script.replace("/", ".")
 		to_convert.append(full_access)
 		to_convert.append(full_script)
+		to_convert.append(short_script)
 	else:
 		var full_script = script_name.path_join(const_name)
 		full_script = full_script.replace("/", ".")
