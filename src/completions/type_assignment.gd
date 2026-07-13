@@ -48,11 +48,12 @@ func _on_code_completion_requested(script_editor:CodeEdit) -> bool:
 		if not target_parser:
 			return false
 		class_obj = target_parser.class_obj
-	
+
+	if not is_instance_valid(class_obj):
+		return false
 	var options:Dictionary = _get_class_obj_completion_options(class_obj)
 	for o in options.values():
 		add_completion_option(script_editor, o)
-	
 	#^ adds the global types to the list, stops already loaded from being double listed
 	if type_hint_text == "":
 		var existing = script_editor.get_code_completion_options()
@@ -71,8 +72,8 @@ func _on_code_completion_requested(script_editor:CodeEdit) -> bool:
 func _get_class_obj_completion_options(class_obj:GDScriptParser.ParserClass):
 	var options = {}
 	var class_script = class_obj.script_resource
-	if not is_instance_valid(class_script):
-		return options
+	#if not is_instance_valid(class_script):
+		#return options
 	
 	var parser = get_gdscript_parser()
 	var gdscript_constants = class_obj.get_gdscript_constants(true)
@@ -82,8 +83,9 @@ func _get_class_obj_completion_options(class_obj:GDScriptParser.ParserClass):
 		if type.ends_with(ParserKeys.ENUM_PATH_SUFFIX):
 			icon_name = "enum"
 		else:
-			var new_parser = parser.get_parser_and_class_obj_for_script(type)
-			icon_name = new_parser.class_obj.script_base_type
+			if type.is_absolute_path():
+				var new_parser = parser.get_parser_and_class_obj_for_script(type)
+				icon_name = new_parser.class_obj.script_base_type
 		
 		_add_dict_entry(options, c, icon_name)
 	

@@ -1,5 +1,7 @@
 extends EditorCodeCompletion
 
+const PRINT_DEBUG = false
+
 const SettingHelper = UtilsRemote.SettingHelperEditor
 const TagParser = UtilsRemote.TagParser
 
@@ -61,7 +63,7 @@ func parse_tag(raw_tags:Dictionary) -> Dictionary:
 		"modifiers": mod_data
 	}
 
-func _on_editor_script_changed(script) -> void:
+func _on_editor_script_changed(_script) -> void:
 	_code_hint_line = -1
 
 func _on_code_completion_requested(script_editor:CodeEdit) -> bool:
@@ -121,6 +123,10 @@ func _comment_completion(script_editor:CodeEdit, caret_context:CaretContext) -> 
 
 
 func _standard_completion(_script_editor:CodeEdit, caret_context:CaretContext) -> bool:
+	if PRINT_DEBUG:
+		print(caret_context.ExpressionState.keys()[caret_context.expression_state])
+		print(caret_context.is_in_function_call())
+	
 	if caret_context.expression_state == CaretContext.ExpressionState.MEMBER_ACCESS:
 		# check member access of the accessed dict
 		var trimmed_expr = caret_context.trim_last_member_access_part()
@@ -136,19 +142,24 @@ func _standard_completion(_script_editor:CodeEdit, caret_context:CaretContext) -
 	elif caret_context.is_in_function_call():
 		var func_call_data = caret_context.get_function_call_data()
 		var func_name = func_call_data.get_function_name()
-		var function_path = func_call_data.get_function_script()
+		var function_origin = func_call_data.get_function_origin()
+		if PRINT_DEBUG:
+			print("DictKey - Func Call")
+			print(func_call_data.symbol_data.origin)
+			print(func_name)
+			print(function_origin)
+		
 		# absolute path, check for data with the current accessed func
-		if GDScriptParser.Utils.is_absolute_path(function_path):
-			if func_name in DICT_FUNCS_TO_SHOW: # ALERT this needs to be in the others I think
-				if func_call_data.current_arg_index > 0:
-					return false
-			function_path = GDScriptParser.Utils.type_path_add_member(function_path, func_name)
-			var meta = get_meta_for_type(function_path)
+		if GDScriptParser.Utils.is_absolute_path(function_origin):
+			var meta = get_meta_for_type(function_origin)
+			if PRINT_DEBUG:
+				print(function_origin)
+				print("meta:", meta)
 			if meta:
 				return process_from_meta_dict(
 					meta_dict({
 						"meta": meta,
-						"meta_origin": function_path,
+						"meta_origin": function_origin,
 					}))
 		
 		# if in a func call of a dictionary arg of current func, display keys
@@ -156,15 +167,20 @@ func _standard_completion(_script_editor:CodeEdit, caret_context:CaretContext) -
 		var current_func_data = _get_current_func_tag_data(func_call_chain)
 		if current_func_data:
 			return process_from_meta_dict(current_func_data)
-		
-		# last thing, if the meta can be found, resolve and display a code hint
+			
+		# last thing, if the meta can be found
+		# check if is a dict operating on ie. Dictionary.get()
+		# or check simulated call to display code hint
 		var call_chain_meta = check_expression_for_meta(func_call_chain, caret_context.caret_line)
 		if call_chain_meta and call_chain_meta.simulated_call != INVALID_ACCESS:
-			var sim_type = caret_context.resolve_expression_to_type(call_chain_meta.simulated_call).trim_suffix(ParserKeys.INS_DELIM)
-			if sim_type:
-				Helpers.set_code_hint(self, sim_type, func_name)
-				_code_hint_line = caret_context.caret_line
-		
+			if call_chain_meta.simulated_call == "":
+				return process_from_meta_dict(call_chain_meta)
+			elif call_chain_meta.simulated_call != INVALID_ACCESS:
+				var sim_type = caret_context.resolve_expression_to_type(call_chain_meta.simulated_call).trim_suffix(ParserKeys.INS_DELIM)
+				if sim_type:
+					Helpers.set_code_hint(self, sim_type, func_name)
+					_code_hint_line = caret_context.caret_line
+			
 	elif caret_context.is_in_dictionary():
 		# in return raw dict declaration or in arg default param
 		if caret_context.code_context_stripped.begins_with("return") or caret_context.line_declaration.ends_with("func"):
@@ -256,6 +272,9 @@ func _add_dict_key_completions(_meta_dict:Dictionary):
 	if member_access or in_dict_index_access:
 		pass # if in member access, we are operating on keys of that object not dict
 	elif (func_name in DICT_FUNCS_TO_SHOW):# and not in_func:
+		if in_func and caret_context.get_function_call_data().current_arg_index > 0:
+			print("IN FUNC::", caret_context.get_function_call_data().current_arg_index)
+			return false
 		pass # if not in func then we can just skio
 	elif not in_dict:
 		return false
@@ -363,6 +382,9 @@ func _add_dict_key_completions(_meta_dict:Dictionary):
 			var dict = get_code_complete_dict(CodeEdit.KIND_VARIABLE, display, insert, type, null, key_location, color)
 			add_completion_option(script_editor, dict)
 	
+	# this should have a way to check if it is actually a const dict
+	#_add_const_dict_members()
+	
 	if not clean and not (in_dict or in_dict_index_access):
 		_add_dict_methods()
 	
@@ -379,6 +401,15 @@ func _clean_dict(_meta_dict:Dictionary):
 	var clean:bool = mods.has("clean")
 	var sort:bool = mods.has("sort")
 	
+	_add_const_dict_members()
+	
+	if not clean or sort:
+		_add_dict_methods()
+	
+	update_completion_options()
+	return true
+
+func _add_const_dict_members():
 	var script_editor = get_code_edit()
 	var existing = script_editor.get_code_completion_options()
 	var valid = []
@@ -389,13 +420,7 @@ func _clean_dict(_meta_dict:Dictionary):
 	
 	for e in valid:
 		add_completion_option(script_editor, e)
-	
-	if not clean or sort:
-		_add_dict_methods()
-	
-	update_completion_options()
-	return true
-
+	pass
 
 func _add_dict_methods():
 	Helpers.built_in_completion(self, "Dictionary", true, {
@@ -679,7 +704,8 @@ class EditorSet:
 	const PREFER_STRING_NAME = &"plugin/code_completion/dict_key/prefer_string_name"
 
 
-# examples
+#region Examples
+
 #! keys clean;
 const Dict = {
 	"key1": "",
@@ -712,3 +738,4 @@ func test():
 		#
 	#})
 	pass
+#endregion

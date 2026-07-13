@@ -68,11 +68,15 @@ func _is_function_call():
 
 func _function_call(caret_context:CaretContext):
 	var func_data = caret_context.get_function_call_data()
-	var current_arg = func_data.func_get_current_arg()
 	comp_object = func_data
 	
-	print_deb(T.ENUM, ["FUNC", current_arg.type])
-	return _process_identifier(current_arg.type)
+	#var current_arg = func_data.get_current_arg_object()
+	#print_deb(T.ENUM, ["FUNC", current_arg.type])
+	#return _process_identifier(current_arg.type)
+	
+	var current_arg_type = func_data.get_current_arg_type()
+	print_deb(T.ENUM, ["FUNC", current_arg_type])
+	return _process_identifier(current_arg_type)
 
 
 func _process_identifier(identifier:String):

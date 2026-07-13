@@ -61,7 +61,19 @@ func _get_tags_in_line(tag_string:String):
 		var location = working_str.substr(0, space_idx).strip_edges()
 		working_str = working_str.substr(space_idx).strip_edges()
 		
-		data[arg_name] = location
+		var flags = []
+		if location.contains("-"): # target arg delimited by '-', not a valid char for identifier
+			var args_string:String = location.get_slice("-", 1)
+			location = location.get_slice("-", 0)
+			flags = [args_string]
+			if args_string.contains(","):
+				flags = args_string.split(",", false)
+		
+		
+		data[arg_name] = {
+			Keys.LOCATION: location,
+			Keys.FLAGS: flags,
+		}
 	return data
 
 
@@ -99,62 +111,47 @@ func _function_call(caret_context:CaretContext):
 	var parser = get_gdscript_parser()
 	
 	var function_call_data = caret_context.get_function_call_data()
-	var function_full_script = function_call_data.get_function_script()
-	if not GDScriptParser.Utils.is_absolute_path(function_full_script):
+
+	# The tag sits above the function's DECLARATION - an ancestor's script, for an inherited call - so
+	# the metadata key and the tag's location string both belong to that script's scope, not the
+	# receiving object's.
+	var function_script = function_call_data.get_function_script()
+	if not GDScriptParser.Utils.is_absolute_path(function_script):
 		return false
-	
-	var function_location = GDScriptParser.Utils.type_path_add_member(function_full_script, function_call_data.get_function_name())
-	var script_data = GDScriptParser.Utils.type_path_get_script_data(function_full_script)
-	var function_script_path = script_data[0]
-	var function_class_path = script_data[1]
-	
-	# check for metadata in the script where func is being called
-	var metadata = TagParser.get_metadata_for_type(function_location, TAG)
+
+	var metadata = TagParser.get_metadata_for_type(function_call_data.get_function_origin(), TAG)
 	if not metadata:
 		return false
 	
 	var location_data = metadata.get(TAG)
-	var current_arg = function_call_data.func_get_current_arg()
-	if not location_data.has(current_arg.name):
+	var arg_name = function_call_data.get_current_arg_name()
+	if not location_data.has(arg_name):
 		return false
-	
+
 	# this is just the declaration, it can be relative or absolute, factor that in below
-	var declared_target_class = location_data[current_arg.name]
-	var target_args = []
-	if declared_target_class.contains("-"): # target arg delimited by '-', not a valid char for identifier
-		var args_string:String = declared_target_class.get_slice("-", 1)
-		declared_target_class = declared_target_class.get_slice("-", 0)
-		target_args = [args_string]
-		if args_string.contains(","):
-			target_args = args_string.split(",", false)
-	
-	
-	# find the function script parser and it's class object
-	var function_script_parser = parser.get_parser_for_path(function_script_path)
-	var func_class_obj = function_script_parser.get_class_object(function_class_path) as GDScriptParser.ParserClass
-	if not is_instance_valid(func_class_obj):
-		return false
-	
-	# resolve the type of the target class in the function script
-	var resolved_target_type = function_script_parser.resolve_expression_to_type(declared_target_class, func_class_obj.line_indexes[0])
-	if not resolved_target_type.begins_with("res://"):
+	var target_data = location_data[arg_name]
+	var target_class = target_data.get(Keys.LOCATION)
+	var target_flags = target_data.get(Keys.FLAGS, [])
+
+	# resolve the target class in the scope it was written in (the declaring script)
+	var func_script_data = GDScriptParser.Utils.type_path_get_script_data(function_script)
+	var resolved_target_type = parser.resolve_expression_in_script(target_class, func_script_data[0], func_script_data[1])
+	if not GDScriptParser.Utils.is_absolute_path(resolved_target_type):
 		return false # not a script, nothing we can do
+
 	
-	var resolved_script_data = GDScriptParser.Utils.type_path_get_script_data(resolved_target_type)
-	var target_script_class_path = resolved_script_data[1]
-	
-	var target_parser_data = function_script_parser.get_parser_and_class_obj_for_script(resolved_target_type)
+	var target_parser_data = parser.get_parser_and_class_obj_for_script(resolved_target_type)
 	var target_script_parser = target_parser_data.parser as GDScriptParser
 	var target_class_obj = target_parser_data.class_obj
-	
-	var func_access_obj = parser.resolve_to_access_object(function_call_data.expression)
-	
-	var current_class_obj = caret_context.get_current_class_object()
-	var access_object = target_script_parser.resolve_to_access_object(declared_target_class)
-	#var path_to_options = target_script_parser.get_access().find_path_to_type_simple(current_class_obj, access_object, resolved_target_type)
-	var path_to_options = target_script_parser.get_access().find_path_to_type(current_class_obj, func_access_obj, access_object, resolved_target_type, function_full_script)
-	#var path_to_options = function_call_data.get_type_access_path(resolved_target_type, access_object)
-	
+	if not is_instance_valid(target_class_obj):
+		return false
+
+	# The secondary access object is the target class AS SPELLED where the tag is written; the call
+	# below translates that into something typable from the caller, verifying candidates in the
+	# CALLER's scope (which is why it goes through the function call data, not a foreign parser).
+	var target_access_object = parser.resolve_to_access_object_in_script(target_class, func_script_data[0], func_script_data[1])
+	var path_to_options = function_call_data.get_type_access_path(resolved_target_type, target_access_object)
+
 	var valid_paths = {}
 	if path_to_options.global != "": valid_paths[path_to_options.global] = " [Global]"
 	if path_to_options.script_alias != "": valid_paths[path_to_options.script_alias] = " [Script Alias]"
@@ -169,14 +166,16 @@ func _function_call(caret_context:CaretContext):
 	#print("PATH TO ", path_to_options.global)
 	
 	var valid_classes = []
-	var deep_search = "d" in target_args or "deep" in target_args
+	var deep_search = "d" in target_flags or "deep" in target_flags
 	if deep_search:
-		for access_path in target_script_parser._class_access.keys():
+		for access_path in target_script_parser.get_classes():
 			if access_path.begins_with(target_class_obj.access_path):
 				valid_classes.append(target_script_parser.get_class_object(access_path))
 	else:
 		valid_classes.append(target_class_obj)
 	
+	# resolved target class path ie. res://class.gd.[MyClass] <- this
+	var target_script_class_path = GDScriptParser.Utils.type_path_get_script_data(resolved_target_type)[1]
 	for path_to_type in valid_paths.keys():
 		var tag = valid_paths[path_to_type]
 		var location = 1024 # make script alias take the top results
@@ -207,7 +206,7 @@ func _function_call(caret_context:CaretContext):
 				add_completion_option(script_editor, cc_dict)
 	
 	# if current text is nothing force the completion
-	update_completion_options(function_call_data.get_text_current_arg() == "")
+	update_completion_options(function_call_data.get_current_arg_text() == "")
 	return true
 
 
@@ -275,13 +274,17 @@ func _syntax_highlighting(_script_editor:CodeEdit, current_line_text:String, lin
 	return hl_info
 
 
+class Keys:
+	const LOCATION = &"location"
+	const FLAGS = &"flags"
 
 
 
-#! arg_location my_setting:Dart.Nested test_2:AnotherTest another:Dart-d
+#! arg_location dart_nest:Dart.Nested  another_test:AnotherTest dart_deep:Dart-d
 ## THIS IS A DOC COMMENT
-func test_method(my_setting:String, test_2:String, another:String, one_more:String=""):
+func test_method(dart_nest:String, another_test:String, dart_deep:String, no_loc:String=""):
 	pass
+
 
 class Dart:
 	
@@ -296,6 +299,7 @@ class Dart:
 	
 	const MY_VAL = &"script_metadata.test.my_val"
 	class Nested:
+		
 		const ANOTHER_VAL = &"script_metadata.test.nested.another_val"
 		class Keep:
 			class Going:
