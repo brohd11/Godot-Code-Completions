@@ -560,13 +560,16 @@ class Helpers:
 		#print(func_data)
 		
 		if func_data:
+			# Both of these are type PATHS now ("Node::ProcessMode##Enum"), so render them as a human
+			# would write them. The arg used to be de-prefixed by hand here because BuiltInChecker handed
+			# back the api's raw "enum::" notation; it no longer does, and the return - which never got
+			# that treatment - is no longer displayed raw either.
 			var func_args = func_data.get(ParserKeys.FUNC_ARGS)
-			var func_ret = func_data.get(ParserKeys.FUNC_RETURN)
+			var func_ret = GDScriptParser.Utils.type_path_to_display(func_data.get(ParserKeys.FUNC_RETURN))
 			if func_args.size() > func_call_data.current_arg_index:
 				var current_arg = func_args.keys()[func_call_data.current_arg_index]
 				var current_arg_data = func_args[current_arg]
-				var current_arg_type = current_arg_data.get(GDScriptParser.Keys.TYPE)
-				current_arg_type = current_arg_type.trim_prefix("enum::")
+				var current_arg_type = GDScriptParser.Utils.type_path_to_display(current_arg_data.get(GDScriptParser.Keys.TYPE))
 				var code_hint = "%s %s(%s: %s)" % [func_ret, func_name, current_arg, current_arg_type]
 				script_editor.set_code_hint(code_hint)
 		
