@@ -3,6 +3,7 @@ extends EditorCodeCompletion
 
 #! import_p UClassDetail,
 const UFile = preload("res://addons/addon_lib/brohd/alib_runtime/utils/u_file.gd")
+const Import = preload("res://addons/code_completions/src/completions/import_code_completion.gd")
 
 func _get_completion_settings() -> Dictionary:
 	return {
@@ -24,13 +25,19 @@ func _on_code_completion_requested(script_editor:CodeEdit) -> bool:
 		return false
 	
 	# import data grabbed from import_code_completion
-	var import_data = get_data("import_data")
+	var import_data = get_data("import_data") as Import.ImportData
 	if import_data == null:
+		import_data = Import.ImportData.new()
 		import_data = {}
-	var hide_global_classes = import_data.get("hide_global_classes_setting", false)
-	var show_global_classes = import_data.get("show_global_classes", {})
+	var hide_global_classes = false
+	var visible_global_classes = {}
 	#var imported_classes = import_data.get("imported_classes")
-	var global_classes = import_data.get("global_classes", {})
+	var global_classes = {}
+	if is_instance_valid(import_data):
+		hide_global_classes = import_data.hide_global_classes
+		visible_global_classes = import_data.visible_global_classes
+		global_classes = import_data.global_classes
+		
 	
 	var class_obj:GDScriptParser.ParserClass
 	var type_hint_text = caret_context.get_type_hint_text()
@@ -60,7 +67,7 @@ func _on_code_completion_requested(script_editor:CodeEdit) -> bool:
 		for o in existing:
 			var display = o.display_text
 			if hide_global_classes:
-				if global_classes.has(display) and not show_global_classes.has(display):
+				if global_classes.has(display) and not visible_global_classes.has(display):
 					continue
 			if not options.has(display):
 				add_completion_option(script_editor, o)

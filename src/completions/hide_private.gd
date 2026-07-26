@@ -17,6 +17,13 @@ func _on_code_completion_requested(script_editor:CodeEdit) -> bool:
 		return false
 	
 	var caret_context = get_caret_context()
+	if not should_filter(caret_context):
+		return false
+	
+	filter(self, script_editor.get_code_completion_options())
+	return true
+
+static func should_filter(caret_context:CaretContext):
 	if caret_context.expression_state != ExpressionState.MEMBER_ACCESS:
 		return false
 	
@@ -24,13 +31,14 @@ func _on_code_completion_requested(script_editor:CodeEdit) -> bool:
 	var last_part = UString.get_member_access_back(word_at_cursor)
 	if last_part.begins_with("_"):
 		return false
-	
-	var options = script_editor.get_code_completion_options()
+	return true
+
+static func filter(cc_ins:EditorCodeCompletion, options):
+	var script_editor = cc_ins.get_code_edit()
 	for option in options:
 		var display_text = option.get("display_text")
 		if display_text.begins_with("_"):
 			continue
-		add_completion_option(script_editor, option)
+		cc_ins.add_completion_option(script_editor, option)
 	
-	update_completion_options()
-	return true
+	cc_ins.update_completion_options()

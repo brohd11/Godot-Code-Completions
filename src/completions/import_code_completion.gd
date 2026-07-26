@@ -1,11 +1,12 @@
 extends EditorCodeCompletion
 
-#! import_show_global 
-#! import_g SyntaxPlusSingleton,
-#! import_p UClassDetail,UString,Settings,
+#! import_show_global SyntaxPlusSingleton,
+#! import_p UClassDetail,Settings
 
-
+const HidePrivate = preload("res://addons/code_completions/src/completions/hide_private.gd")
 const HLInfo = SyntaxPlusSingleton.HLInfo
+
+const CacheHelper = UtilsRemote.CacheHelper
 
 #^ import hints
 const PREFIX = "#!"
@@ -15,38 +16,30 @@ const _IMPORT_PRELOADS = "import_preloads"
 const _IMPORT_P = "import_p"
 const _IMPORT_G = "import_g"
 
-#^ keys
-const IMPORT_MEMBERS_CURRENT = &"import_members_current"
-const IMPORT_MEMBERS = &"import_members"
-const IMPORTED_CLASSES = &"imported_classes"
-const OPTIONS_TO_SKIP = &"options_to_skip"
-
 #^ completion cache
-const COMP_CHECKED_SCRIPTS = &"checked_scripts"
 const HINT_SEARCH_SCOPE = 10
-const CALL_WITH_ARGS = "(\u2026)"
+
 
 #^ editor settings
 var _enable:bool = true
+var default_imports:Array = []
 var hide_global_classes_setting:= false
 var hide_global_exemptions:Array = []
 
 
-var data_cache:Dictionary = {}
+var _class_member_cache:Dictionary = {}
 
 var extended_class_names:Dictionary = {} #^ [name, bool] a set
 
 var global_classes:Dictionary = {} #^ [name, path]
-var global_paths:Dictionary = {} #^ [path, name]
 var preload_paths:Dictionary = {} #^ [path, bool] a set
 
-var imported_classes:Dictionary = {} #^ [name, script]
-var imported_class_scripts:Dictionary = {} #^ [script, name]
 var show_global_classes:Dictionary = {} #^ [name, script]
 var hide_global_classes = false
 var hide_private_members = false
 
-var completion_cache:Dictionary = {}
+
+var current_import_data:ImportData
 
 const _COMMENT_TAGS = {
 	PREFIX: {
@@ -65,7 +58,6 @@ func _get_completion_settings() -> Dictionary:
 
 
 func _singleton_ready():
-	#_init_set_settings()
 	
 	for prefix in _COMMENT_TAGS.keys():
 		var tag_data = _COMMENT_TAGS.get(prefix)
@@ -82,6 +74,7 @@ func _singleton_ready():
 func register_editor_settings(settings_helper:SettingHelperEditor):
 	settings_helper.subscribe_property(self, &"_enable", Settings.IMPORT_ENABLE, true)
 	settings_helper.subscribe_property(self, &"hide_private_members", Settings.HIDE_PRIVATE_PROP_SETTINGS, true)
+	settings_helper.subscribe_property(self, &"default_imports", Settings.DEFAULT_IMPORTS, [])
 	settings_helper.subscribe_property(self, &"hide_global_classes_setting", Settings.HIDE_GLOBAL_SETTING, false)
 	settings_helper.subscribe_property(self, &"hide_global_exemptions", Settings.HIDE_GLOBAL_EXEMP_SETTING, [])
 	
@@ -89,26 +82,12 @@ func register_editor_settings(settings_helper:SettingHelperEditor):
 	while not editor_settings.has_setting(Settings.HIDE_GLOBAL_EXEMP_SETTING):
 		await EditorInterface.get_base_control().get_tree().process_frame
 	
-	var hide_global_exemp = Settings.HIDE_GLOBAL_EXEMP_INFO.duplicate()
-	hide_global_exemp["hint_string"] = "%d:" % [TYPE_STRING]
-	editor_settings.add_property_info(hide_global_exemp)
-
-
-func _init_set_settings():
-	var editor_settings = EditorInterface.get_editor_settings()
-	if not editor_settings.has_setting(Settings.HIDE_GLOBAL_SETTING):
-		editor_settings.set_setting(Settings.HIDE_GLOBAL_SETTING, false)
-	if not editor_settings.has_setting(Settings.HIDE_GLOBAL_EXEMP_SETTING):
-		editor_settings.set_setting(Settings.HIDE_GLOBAL_EXEMP_SETTING, [])
-	if not editor_settings.has_setting(Settings.HIDE_PRIVATE_PROP_SETTINGS):
-		editor_settings.set_setting(Settings.HIDE_PRIVATE_PROP_SETTINGS, false)
+	var hide_global_exemp_pi = Settings.get_str_arr_prop_info(Settings.HIDE_GLOBAL_EXEMP_SETTING)
+	editor_settings.add_property_info(hide_global_exemp_pi)
 	
-	var hide_global_exemp = Settings.HIDE_GLOBAL_EXEMP_INFO.duplicate()
-	hide_global_exemp["hint_string"] = "%d:" % [TYPE_STRING]
-	editor_settings.add_property_info(hide_global_exemp)
-	
-	_set_settings()
-	editor_settings.settings_changed.connect(_set_settings)
+	var default_import_pi = Settings.get_str_arr_prop_info(Settings.DEFAULT_IMPORTS)
+	editor_settings.add_property_info(default_import_pi)
+
 
 func _set_settings():
 	var editor_settings = EditorInterface.get_editor_settings()
@@ -120,6 +99,7 @@ func _set_settings():
 
 
 func _on_editor_script_changed(_script):
+	
 	editor_theme = EditorInterface.get_editor_theme()
 	_get_script_imports.call_deferred()
 	_get_global_and_preloads.call_deferred()
@@ -130,19 +110,12 @@ func _on_code_completion_requested(script_editor:CodeEdit) -> bool:
 	if not _enable:
 		return false
 	
-	data_cache.clear() #^ caching seems ok, but can get stale
-	#^g test area ^^
-	
-	completion_cache.clear()
-	completion_cache[COMP_CHECKED_SCRIPTS] = {}
-	
-	#^^^^ OLD
 	var current_script = get_current_script()
 	if current_script == null:
 		return false
 	
 	var caret_context = get_caret_context()
-	if caret_context.token_state == CaretContext.TokenState.COMMENT:
+	if caret_context.token_state == TokenState.COMMENT:
 		var caret_line = script_editor.get_caret_line()
 		var current_line_text = script_editor.get_line(caret_line)
 		var import_hint_options = _import_hint_autocomplete(current_line_text)
@@ -152,16 +125,16 @@ func _on_code_completion_requested(script_editor:CodeEdit) -> bool:
 			update_completion_options()
 			return true
 		return false
-	elif caret_context.token_state != CaretContext.TokenState.NONE:
+	elif caret_context.token_state != TokenState.NONE:
 		return false
 	
 	var has_declaration = caret_context.line_declaration != ""
 	var expression_state = caret_context.expression_state
-	if has_declaration and expression_state == CaretContext.ExpressionState.NONE:
+	if has_declaration and expression_state == ExpressionState.NONE:
 		return false
-	elif expression_state == CaretContext.ExpressionState.MEMBER_ACCESS:
+	elif expression_state == ExpressionState.MEMBER_ACCESS:
 		return false
-	elif expression_state == CaretContext.ExpressionState.TYPE_HINT:
+	elif expression_state == ExpressionState.TYPE_HINT:
 		return false
 	elif caret_context.is_in_enum():
 		return false
@@ -169,20 +142,10 @@ func _on_code_completion_requested(script_editor:CodeEdit) -> bool:
 		return false
 	
 	
-	
-	
 	var existing_options = script_editor.get_code_completion_options()
 	
 	# check if the current options are enum completions. If they all are, don't alter
-	var is_enum = true
-	if existing_options.is_empty():
-		is_enum = false
-	else:
-		for o in existing_options:
-			if o.kind != CodeEdit.CodeCompletionKind.KIND_ENUM:
-				is_enum = false
-				break
-	if is_enum:
+	if _existing_is_enum(existing_options):
 		return false
 	
 	if existing_options.size() < 20:
@@ -191,338 +154,256 @@ func _on_code_completion_requested(script_editor:CodeEdit) -> bool:
 		if _SKIP_CHARS.has(caret_context.char_before_caret):
 			return false
 	
-	#var options = []
-	#var options_dict:Dictionary = {}
-	
-	var cache_cc_options = _get_cached_data(IMPORT_MEMBERS_CURRENT, current_script.resource_path, data_cache)
-	if cache_cc_options == null:
-		cache_cc_options = _get_code_complete_options()
-		_store_data(IMPORT_MEMBERS_CURRENT, current_script.resource_path, cache_cc_options, current_script, data_cache)
-	
-	
-	var cc_options = cache_cc_options.duplicate(true) #^ duplicate so cache retains options to skip
-	var options_to_skip = cc_options.get(OPTIONS_TO_SKIP, {})
-	cc_options.erase(OPTIONS_TO_SKIP)
-	
-	for o in cc_options.values():
-		add_completion_option(script_editor, o)
+	var completions = _get_options_v2()
 	
 	for e in existing_options:
 		var display = e.display_text
-		if options_to_skip.has(display):
+		if completions.has(display):
+			printerr("COMPLETION HAS!!", display)
 			continue
-		if hide_global_classes:
-			if global_classes.has(display) and not show_global_classes.has(display):
+		if current_import_data.hide_global_classes:
+			if current_import_data.global_classes.has(display) and not current_import_data.visible_global_classes.has(display):
 				continue
 		add_completion_option(script_editor, e)
+	
+	for c in completions.keys():
+		add_completion_option(script_editor, completions[c])
 	
 	update_completion_options()
 	return true
 
 
-func _get_code_complete_options():
-	var cc_options = {}
-	var options_to_skip = {}
+func _get_options_v2():
+	var t = GDScriptParser.TF.new("IMPORT V2")
+	var current_parser = get_gdscript_parser()
+	var completions = {}
 	
-	var current_script = EditorInterface.get_script_editor().get_current_script() #^r need this to get enum members
-	if current_script == null:
-		return cc_options
-	var current_script_members = _get_script_member_code_complete_options(current_script, "", options_to_skip)
-	for name in current_script_members.keys():
-		options_to_skip[name] = true
-	cc_options.merge(current_script_members)
 	
-	for access_path in imported_classes.keys():
-		var script = imported_classes.get(access_path)
-		var members = _get_script_member_code_complete_options(script, access_path, options_to_skip, ["const", "enum", "method"])
-		cc_options.merge(members)
+	for access_path in current_import_data.imported_classes.keys():
+		_import_members(
+			access_path,
+			_get_class_members(
+				current_parser,
+				current_import_data.imported_classes[access_path]
+			),
+			completions
+		)
 	
-	cc_options[OPTIONS_TO_SKIP] = options_to_skip
-	return cc_options
+	t.stop()
+	return completions
 
 
-func _get_script_member_code_complete_options(script:GDScript, access_name:String, 
-				options_to_skip:Dictionary, member_hints:=UClassDetail._MEMBER_ARGS):
-	
-	if imported_class_scripts.has(script) and access_name.find(".") > -1:
-		return {}
-	if completion_cache[COMP_CHECKED_SCRIPTS].has(script):
-		return {}
-	completion_cache[COMP_CHECKED_SCRIPTS][script] = true
-	
-	var cache_key = script.resource_path if script.resource_path != "" else script
-	var cc_options = _get_cached_data(IMPORT_MEMBERS, cache_key, data_cache)
-	if cc_options == null:
-		cc_options = {}
-		cc_options[access_name] = get_code_complete_dict(CodeEdit.CodeCompletionKind.KIND_CLASS,access_name, access_name, "Object")
-		options_to_skip[access_name] = true
-		
-		for hint in member_hints:
-			var options:Dictionary
-			if hint == "enum":
-				options = _get_enum_options(script, access_name)
-			elif hint ==  "const":
-				options = _get_const_options(script, access_name)
-			elif hint == "property":
-				options = _get_property_options(script, access_name)
-			elif hint == "signal":
-				options = _get_signal_options(script, access_name)
-			elif hint == "method":
-				options = _get_method_options(script, access_name, true)
-			
-			if options != null:
-				if options.has(OPTIONS_TO_SKIP):
-					options_to_skip.merge(options[OPTIONS_TO_SKIP])
-					options.erase(OPTIONS_TO_SKIP)
-				cc_options.merge(options)
-		
-		_store_data(IMPORT_MEMBERS, cache_key, cc_options, script, data_cache)
-	
-	return cc_options
+func _import_members(access_path:String, members:Dictionary, completions:Dictionary):
+	for m in members:
+		var data = members[m]
+		var full_path = UString.dot_join(access_path, m)
+		#trim_
+		var insert = full_path
+		var display = full_path
+		if insert.ends_with("("):
+			display = insert.trim_suffix("(") + Helpers.DOTS_UNICODE
+		#print(display, ";", data)
+		#trim
+		completions[display] = get_code_complete_dict(data[0], display, insert, data[1])
 
 
-func _get_property_options(script:GDScript, access_name:String):
-	var properties = UClassDetail.script_get_all_properties(script)#, true)
-	var cc_options = {}
-	for p in properties:
-		if p.ends_with(".gd"):
+func _get_class_members(parser:GDScriptParser, path:String):
+	#_class_member_cache = {}
+	
+	var cached = CacheHelper.get_cached_data(path, _class_member_cache)
+	if cached != null:
+		return cached
+	var members = {}
+	var path_data = GDScriptParser.Utils.type_path_get_script_data(path)
+	var access_path = path_data[1]
+	var parser_data = parser.get_parser_and_class_obj_for_script(path)
+	var class_obj = parser_data.class_obj
+	for func_name in class_obj.functions.keys():
+		var func_obj = class_obj.functions[func_name] as GDScriptParser.ParserFunc
+		if not func_obj.is_static():
 			continue
-		if hide_private_members and p.begins_with("_"):
-			continue
-		#var data = properties.get(p)
-		var cc_nm = access_name + "." + p if access_name != "" else p
-		cc_options[cc_nm] = get_code_complete_dict(CodeEdit.CodeCompletionKind.KIND_MEMBER,cc_nm,cc_nm,"property")
-	return cc_options
+		var has_args = not func_obj.arguments.is_empty()
+		var insert = func_name + "()"
+		#var display = insert
+		if has_args:
+			insert = func_name + "("
+			#display = func_name + "(%s)" % Helpers.DOTS_UNICODE
+		members[insert] = [CodeEdit.KIND_FUNCTION, "method"]
 	
-
-func _get_const_options(script:GDScript, access_name:String):
-	var options_to_skip = {}
-	var constants = UClassDetail.script_get_all_constants(script, UClassDetail.IncludeInheritance.SCRIPTS_ONLY)
-	var cc_options = {}
-	for c in constants:
-		if hide_private_members and c.begins_with("_"):
-			continue
-		var icon = "const"
-		var val = constants.get(c)
-		if val is GDScript:
-			if imported_class_scripts.has(val):
-				continue
-			if preload_paths.has(val.resource_path):
-				continue
-			icon = "Object"
-		
-		var cc_nm = access_name + "." + c if access_name != "" else c
-		cc_options[cc_nm] = get_code_complete_dict(CodeEdit.CodeCompletionKind.KIND_CONSTANT,cc_nm,cc_nm,icon)
-		
-		if val is GDScript:
-			if imported_class_scripts.has(val) or completion_cache[COMP_CHECKED_SCRIPTS].has(val):
-				continue
-			var nested_methods = _get_class_new_method(val, cc_nm)
-			cc_options.merge(nested_methods)
-		
-		#if val is GDScript:# and val.resource_path == "": #^r deep logic
-			#var nested_options = _get_script_member_code_complete_options(val, cc_nm, options_to_skip, ["const", "method", "enum"])
-			#if nested_options.has(OPTIONS_TO_SKIP):
-				#options_to_skip.merge(nested_options[OPTIONS_TO_SKIP])
-				#nested_options.erase(OPTIONS_TO_SKIP)
-			#cc_options.merge(nested_options)
-	
-	cc_options[OPTIONS_TO_SKIP] = options_to_skip
-	return cc_options
-
-
-func _get_method_options(script:GDScript, access_name:String, include_new:bool=false):
-	var methods = UClassDetail.script_get_all_methods(script, UClassDetail.IncludeInheritance.SCRIPTS_ONLY)
-	var cc_options = {}
-	
-	if include_new:
-		var new_options = _get_class_new_method(script, access_name, methods)
-		cc_options.merge(new_options)
-	
-	for m in methods:
-		var data = methods.get(m)
-		var name = data.get("name")
-		if hide_private_members and m.begins_with("_"):
-			continue
+	for c in class_obj.constants.keys():
+		var data = class_obj.constants[c]
+		if not data.get(ParserKeys.ACCESS_PATH) == access_path:
+			continue # ensure only actual members are listed
+		if data.get(ParserKeys.MEMBER_TYPE) == ParserKeys.ENUM_MEMBERS:
+			members[c] = [CodeEdit.KIND_ENUM, "enum"]
+			var enum_members = class_obj.get_enum_members(c)
+			for e in enum_members:
+				members[UString.dot_join(c, e)] = [CodeEdit.KIND_ENUM, "enum"]
 		else:
-			if name == "_init":
+			var type = class_obj.get_member_type(c)
+			if type.is_absolute_path():
 				continue
-		
-		var flags = data.get("flags")
-		if not (flags & METHOD_FLAG_STATIC):
-			continue
-		var args = data.get("args")
-		var cc_nm = access_name + "." + m if access_name != "" else m
-		var cc_ins = cc_nm + "("
-		if args.is_empty():
-			cc_nm = cc_nm + "()"
-			cc_ins = cc_nm
-		else:
-			cc_nm = cc_nm + CALL_WITH_ARGS
-		cc_options[cc_nm] = get_code_complete_dict(CodeEdit.CodeCompletionKind.KIND_FUNCTION,cc_nm,cc_ins,"method")
+			members[c] = [CodeEdit.KIND_CONSTANT, "const"]
 	
-	return cc_options
-
-func _get_class_new_method(script:GDScript, access_name:String, methods=null):
-	if access_name == "": #^ if the main script, don't want
-		return {}
-	if methods == null:
-		methods = UClassDetail.script_get_all_methods(script, UClassDetail.IncludeInheritance.SCRIPTS_ONLY)
-	var cc_options = {}
-	var init_method_data = methods.get("_init")
-	var has_args = false
-	if init_method_data != null:
-		var init_args = init_method_data.get("args", [])
-		if not init_args.is_empty():
-			has_args = true
+	for m in class_obj.members.keys():
+		var data = class_obj.members[m]
+		if data.get(ParserKeys.MEMBER_TYPE) == ParserKeys.MEMBER_TYPE_STATIC_VAR:
+			members[m] = [CodeEdit.KIND_MEMBER, "property"]
 	
-	var new_call = access_name + ".new()"
-	var new_call_ins = new_call
-	if has_args:
-		new_call = access_name + ".new" + CALL_WITH_ARGS
-		new_call_ins = access_name + ".new("
-	cc_options[new_call] = get_code_complete_dict(CodeEdit.CodeCompletionKind.KIND_FUNCTION,new_call,new_call_ins,"constructor")
-	return cc_options
-
-
-func _get_signal_options(script:GDScript, access_name:String):
-	var signals = UClassDetail.script_get_all_signals(script)
-	var cc_options = {}
-	for s in signals:
-		if hide_private_members and s.begins_with("_"):
-			continue
-		var cc_nm = access_name + "." + s if access_name != "" else s
-		cc_options[cc_nm] = get_code_complete_dict(CodeEdit.CodeCompletionKind.KIND_SIGNAL,cc_nm,cc_nm,"signal")
-	return cc_options
-
-func _get_enum_options(script:GDScript, access_name:String):
-	var enums = UClassDetail.script_get_all_enums(script)#, true)
-	var cc_options = {}
-	for e in enums:
-		if hide_private_members and e.begins_with("_"):
-			continue
-		var cc_nm = access_name + "." + e if access_name != "" else e
-		cc_options[cc_nm] = get_code_complete_dict(CodeEdit.CodeCompletionKind.KIND_ENUM,cc_nm,cc_nm,"enum")
-		
-		#var enum_members = get_enum_members(e) #^ check if in current script, if so parse directly
-		var enum_members = null
-		if enum_members == null:
-			enum_members = enums.get(e)
-		for em in enum_members.keys():
-			var em_nm = cc_nm + "." + em
-			cc_options[em_nm] = get_code_complete_dict(CodeEdit.CodeCompletionKind.KIND_ENUM,em_nm,em_nm,"enum")
+	#for ic in class_obj.inner_classes.keys():
+		#members[ic] = [CodeEdit.KIND_CLASS, "Object"]
 	
-	return cc_options
+	CacheHelper.store_data(path, members, _class_member_cache, [path_data[0]])
+	return members
+
 
 
 func _get_script_imports():
+	global_classes = UClassDetail.get_all_global_class_paths()
+	
+	current_import_data = null
+	
 	var script_editor = get_code_edit()
 	if script_editor == null:
 		return []
-	var import_hints = {
-		_IMPORT_SHOW_GLOBAL_ALL: false,
-		_IMPORT_PRELOADS: false,
-		_IMPORT_SHOW_GLOBAL: {},
-		_IMPORT_P: {},
-		_IMPORT_G: {},
-	}
-	var line_count = script_editor.get_line_count()
-	for i in range(HINT_SEARCH_SCOPE):
-		if not i < line_count:
-			break
+	
+	
+	var parser = get_gdscript_parser()
+	
+	
+	var parser_script = parser.get_script_path()
+	var cached = get_import_data(parser_script)
+	if cached != null:
+		current_import_data = cached
+		return
+	
+	var import_preloads := false
+	
+	var preload_imports = []
+	var global_imports = []
+	
+	var show_all_globals := false
+	var globals_to_show = {}
+	
+	var all_imports = []
+	
+	var max_count = mini(script_editor.get_line_count(), HINT_SEARCH_SCOPE)
+	var i = -1
+	var found_import:=false
+	while i < max_count:
+		i += 1
 		var line = script_editor.get_line(i)
 		if not line.begins_with("#! import"):
-			continue
+			if found_import:
+				break
+			else:
+				continue
+		found_import = true
+		max_count += 1
 		var hint = line.get_slice(PREFIX, 1).strip_edges().get_slice(" ", 0).strip_edges()
 		if hint == _IMPORT_SHOW_GLOBAL_ALL:
-			import_hints[_IMPORT_SHOW_GLOBAL_ALL] = true
+			show_all_globals = true
 		elif hint == _IMPORT_PRELOADS:
-			import_hints[_IMPORT_PRELOADS] = true
+			import_preloads = true
+		elif hint == _IMPORT_SHOW_GLOBAL:
+			var classes = _get_classes_in_line(line.get_slice(_IMPORT_SHOW_GLOBAL, 1).strip_edges())
+			for c in classes:
+				globals_to_show[c] = true
+		elif hint == _IMPORT_G:
+			var classes = _get_classes_in_line(line.get_slice(_IMPORT_G, 1).strip_edges())
+			global_imports.append_array(classes)
+		elif hint == _IMPORT_P:
+			var classes = _get_classes_in_line(line.get_slice(_IMPORT_P, 1).strip_edges())
+			preload_imports.append_array(classes)
 	
-	var hints = [_IMPORT_SHOW_GLOBAL, _IMPORT_G, _IMPORT_P]
-	for hint in hints:
-		var current = _get_current_classes_of_hint(hint, script_editor)
-		for class_nm in current:
-			import_hints[hint][class_nm] = true
 	
-	if not hide_global_classes_setting:
-		import_hints[_IMPORT_SHOW_GLOBAL_ALL] = true
-	
-	imported_classes.clear()
-	imported_class_scripts.clear()
+	var all_imported_classes = {}
 	show_global_classes.clear()
 	
-	var deep = false
-	var include_inner = true
-	var current_script = get_current_script()
-	var preloads = UClassDetail.script_get_preloads(current_script, deep, include_inner)
-	if import_hints[_IMPORT_PRELOADS] == true:
-		for _class in preloads.keys():
-			var pl_script = preloads[_class]
-			imported_classes[_class] = pl_script
-	else:
-		for _class in import_hints[_IMPORT_P].keys():
-			var pl_script = preloads.get(_class)
-			if pl_script != null:
-				imported_classes[_class] = pl_script
+	var class_obj:GDScriptParser.ParserClass = parser.get_class_object("")
+	if import_preloads:
+		var gd_constants = class_obj.get_gdscript_constants(true)
+		for c in gd_constants:
+			var type = gd_constants[c]
+			if type.ends_with(GDScriptParser.Keys.ENUM_PATH_SUFFIX):
+				continue
+			all_imported_classes[c] = type
 	
-	for _class in import_hints[_IMPORT_G].keys():
-		if extended_class_names.has(_class):
+	all_imports.append_array(global_imports)
+	all_imports.append_array(preload_imports)
+	all_imports.append_array(default_imports)
+	
+	for access_path in all_imports:
+		if access_path.is_empty() or all_imported_classes.has(access_path) or extended_class_names.has(access_path):
 			continue
-		var path = UClassDetail.get_global_class_path(_class)
-		if path != "":
-			var g_script = load(path)
-			imported_classes[_class] = g_script
-			show_global_classes[_class] = g_script #^ add to show if imported
+		var resolved = ""
+		if class_obj.has_script_member(access_path) or class_obj.has_inherited_member(access_path):
+			resolved = class_obj.get_member_type(access_path, true)
+		else:
+			resolved = parser.resolve_expression_to_type(access_path)
+		
+		if resolved != "":
+			all_imported_classes[access_path] = resolved
 	
-	if import_hints[_IMPORT_SHOW_GLOBAL_ALL] == true:
+	print(globals_to_show)
+	print(global_imports)
+	if not hide_global_classes_setting or show_all_globals:
 		hide_global_classes = false
 	else:
 		hide_global_classes = true
-		for _class in hide_global_exemptions:
+		for _class in globals_to_show.keys():
 			var path = UClassDetail.get_global_class_path(_class)
 			if path == "":
-				printerr("Hide global class editor setting class not found: ", _class)
-			else:
-				var g_script = load(path)
-				show_global_classes[_class] = g_script
+				globals_to_show.erase(_class)
 		
-		for _class in import_hints[_IMPORT_SHOW_GLOBAL].keys():
+		for _class in global_imports:
 			var path = UClassDetail.get_global_class_path(_class)
 			if path != "":
-				var g_script = load(path)
-				show_global_classes[_class] = g_script
+				globals_to_show[_class] = true
+		
+		for _class in hide_global_exemptions:
+			var path = UClassDetail.get_global_class_path(_class)
+			if path != "":
+				globals_to_show[_class] = true
+			else:
+				pass
+				#printerr("Hide global class editor setting class not found: ", _class)
+				
 	
-	for nm in imported_classes.keys():
-		imported_class_scripts[imported_classes[nm]] = nm
 	
-	var import_data = {
-		"hide_global_classes_setting": hide_global_classes,
-		"show_global_classes": show_global_classes,
-		"imported_classes":imported_classes,
-		"global_classes":global_classes,
-	}
-	set_data("import_data", import_data)
+	var import_data = ImportData.new()
+	import_data.hide_global_classes = hide_global_classes
+	import_data.visible_global_classes = globals_to_show
+	import_data.imported_classes = all_imported_classes
+	
+	current_import_data = import_data
+	#singleton.peristent_cache.erase(&"import_data")
+	var import_data_cache = singleton.peristent_cache.get_or_add(&"import_data", {})
+	CacheHelper.store_data(parser_script, import_data, import_data_cache, [parser_script])
+	
+	#set_data("import_data", import_data)
 
+static func get_import_data(path:String):
+	var ins = EditorCodeCompletionSingleton.get_instance()
+	var import_data_cache = ins.peristent_cache.get_or_add(&"import_data", {})
+	return CacheHelper.get_cached_data(path, import_data_cache)
 
 func _get_global_and_preloads():
-	global_paths.clear()
 	global_classes = UClassDetail.get_all_global_class_paths()
-	for nm in global_classes:
-		global_paths[global_classes[nm]] = nm
 	
-	preload_paths.clear()
-	var preloads = UClassDetail.script_get_preloads(get_current_script())
-	for _name in preloads:
-		var script = preloads.get(_name)
-		if script.resource_path != "":
-			preload_paths[script.resource_path] = true
+	#preload_paths.clear()
+	#var preloads = UClassDetail.script_get_preloads(get_current_script())
+	#for _name in preloads:
+		#var script = preloads.get(_name)
+		#if script.resource_path != "":
+			#preload_paths[script.resource_path] = true
 	
 	extended_class_names.clear()
 	var inh_scripts = UClassDetail.script_get_inherited_script_paths(get_current_script())
 	for path in inh_scripts:
-		if global_paths.has(path):
-			extended_class_names[global_paths[path]] = true
+		var script = load(path) as Script
+		if script.get_global_name() != "":
+			extended_class_names[script.get_global_name()] = true
 
 
 func _import_syntax_hl(script_editor:CodeEdit, current_line_text:String, _line:int, comment_tag_idx:int):
@@ -584,6 +465,14 @@ func _import_syntax_hl(script_editor:CodeEdit, current_line_text:String, _line:i
 				#hl_info[comma_idx + 1] = SyntaxPlusSingleton.get_hl_info_dict(comment_color)
 	
 	return hl_info
+
+func _get_classes_in_line(text:String):
+	var current_classes = text.split(",",false)
+	for i_slice in range(current_classes.size()):
+		var nm = current_classes[i_slice]
+		nm = nm.strip_edges()
+		current_classes[i_slice] = nm
+	return current_classes
 
 
 func _get_current_classes_of_hint(hint:String, script_editor:CodeEdit):
@@ -666,6 +555,14 @@ static func find_indentifier_in_line(line_text:String, identifier:String) -> int
 		i = idx + identifier.length()
 	return idx
 
+func _existing_is_enum(existing_options:Array):
+	if existing_options.is_empty():
+		return false
+	else:
+		for o in existing_options:
+			if o.kind != CodeEdit.CodeCompletionKind.KIND_ENUM:
+				return false
+	return true
 
 const _SKIP_KEYWORDS = {
 	"pass":true,
@@ -691,15 +588,37 @@ const _SKIP_DECLARATIONS = [
 	"class_name ",
 ]
 
+class ImportData:
+	
+	var global_classes:Dictionary = {}
+	var hide_global_classes:bool = false
+	var hide_global_exemption:Array = []
+	var visible_global_classes:Dictionary = {}
+	var imported_classes:Dictionary = {}
+	
+	func _init() -> void:
+		global_classes = UtilsRemote.UClassDetail.get_all_global_class_paths()
+
 class Settings:
 	const IMPORT_ENABLE = &"plugin/code_completion/import/enable"
+	const DEFAULT_IMPORTS = &"plugin/code_completion/import/default_imports"
 	const HIDE_GLOBAL_SETTING = &"plugin/code_completion/import/hide_global_classes"
-	const HIDE_PRIVATE_PROP_SETTINGS = EditorCodeCompletion.EditorCodeCompletionSingleton.HidePrivateCompletion._HIDE_PRIVATE_PROP_SETTING
+	const HIDE_PRIVATE_PROP_SETTINGS = HidePrivate._HIDE_PRIVATE_PROP_SETTING
 	
 	const HIDE_GLOBAL_EXEMP_SETTING = &"plugin/code_completion/import/hide_global_exemptions"
-	const HIDE_GLOBAL_EXEMP_INFO = {
-	"name": HIDE_GLOBAL_EXEMP_SETTING,
+	
+	
+	const _STRING_ARRAY_PROP_INFO = {
+	"name": "",
 	"type": TYPE_ARRAY,
 	"hint": PROPERTY_HINT_TYPE_STRING,
 	"hint_string": "%d:%d"
 	}
+	
+	static func get_str_arr_prop_info(setting_path:String, hint_string:String=""):
+		if hint_string == "":
+			hint_string = "%d:" % [TYPE_STRING]
+		var info = _STRING_ARRAY_PROP_INFO.duplicate()
+		info["name"] = setting_path
+		info["hint_string"] = hint_string
+		return info 
