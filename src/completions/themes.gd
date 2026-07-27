@@ -1,6 +1,5 @@
 extends EditorCodeCompletion
 
-const EditorColors = UtilsRemote.EditorColors
 
 const CATEGORIES = ["color", "constant", "font", "font_size", "icon", "stylebox"]
 

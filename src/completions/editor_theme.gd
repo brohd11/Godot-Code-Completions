@@ -1,6 +1,5 @@
 extends EditorCodeCompletion
 
-const EditorColors = UtilsRemote.EditorColors
 const UTexture = UtilsRemote.UTexture
 
 var _enable:bool = true

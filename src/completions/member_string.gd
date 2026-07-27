@@ -5,7 +5,6 @@ extends EditorCodeCompletion
 ## Godot only manages this when it can see the receiver directly; the parser resolves it
 ## through variables, user scripts, and sibling arguments.
 
-const EditorColors = UtilsRemote.EditorColors
 
 const PREFIX = &"prefix"
 const ALLOW_QUOTE = &"allow_quote"
