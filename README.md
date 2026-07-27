@@ -23,6 +23,7 @@ All of these completions are toggleable.
  - enum - if a member, or argument is typed as an enum, finds the enum and lists the members
  - extended type hints - the editor doesn’t handle preloaded types in every situation, attempts to extend to all valid places
  - const key - when defining a const string, suggests strings based on const name, and location in script
+ - member string - completes method and property names written as string arguments: `call("…")`, `set_deferred("…")`, `has_method("…")`, `rpc("…")`, `Callable(obj, "…")`. Resolves the receiver through variables and user scripts, and reads it from argument 0 where that's the object. `set_indexed`/`get_indexed`/`tween_property` also complete property paths past the colon (`"modulate:a"`)
 
 ### Tag based
  - dict key - define keys for dictionaries, they will be suggested in a variety of scenarios

@@ -28,6 +28,7 @@ const DictKey = preload("res://addons/code_completions/src/completions/dict_key.
 const ThemeCompletion = preload("res://addons/code_completions/src/completions/themes.gd")
 const EditorThemeCompletion = preload("res://addons/code_completions/src/completions/editor_theme.gd")
 const NewCompletion = preload("res://addons/code_completions/src/completions/new.gd")
+const MemberString = preload("res://addons/code_completions/src/completions/member_string.gd")
 
 var enum_completion:EnumCompletion
 var import_code_completion:ImportCodeCompletion
@@ -40,6 +41,7 @@ var dict_key:DictKey
 var theme_completion:ThemeCompletion
 var editor_theme_completion:EditorThemeCompletion
 var new_completion:NewCompletion
+var member_string:MemberString
 
 
 const TF = preload("uid://ft7o6vspsurv") #! resolve ALibRuntime.Utils.UProfile.TimeFunction #TODO erase
@@ -147,7 +149,8 @@ func _init_plugins() -> void:
 	theme_completion = ThemeCompletion.new()
 	editor_theme_completion = EditorThemeCompletion.new()
 	new_completion = NewCompletion.new()
-	
+	member_string = MemberString.new()
+
 	setting_helper = SettingHelperEditor.new()
 	var plugins = _get_plugins()
 	for p in plugins:
@@ -174,6 +177,7 @@ func _get_plugins() -> Array[EditorCodeCompletion]:
 		theme_completion,
 		editor_theme_completion,
 		new_completion,
+		member_string,
 		]
 
 func register_tag(prefix:String, tag:String, location:TagLocation=TagLocation.ANY):

@@ -7,6 +7,7 @@ const TagLocation = EditorCodeCompletionSingleton.TagLocation
 const UtilsRemote = EditorCodeCompletionSingleton.UtilsRemote
 const UClassDetail = UtilsRemote.UClassDetail
 const UString = UtilsRemote.UString
+const EditorColors = UtilsRemote.EditorColors
 
 const SettingHelperEditor = UtilsRemote.SettingHelperEditor
 
@@ -190,6 +191,22 @@ class Helpers:
 		if not insert.ends_with("("):
 			return insert
 		return insert.trim_suffix("(") + DOTS_UNICODE
+	
+	static func get_string_color(caret_context:CaretContext, ensure_string:=TokenState.STRING_NAME):
+		if caret_context.token_state == TokenState.STRING:
+			return EditorColors.get_syntax_color(EditorColors.SyntaxColor.STRING)
+		elif caret_context.token_state == TokenState.STRING_NAME:
+			return EditorColors.get_syntax_color(EditorColors.SyntaxColor.STRING_NAME)
+		elif caret_context.token_state == TokenState.NODE_PATH_LITERAL:
+			return EditorColors.get_syntax_color(EditorColors.SyntaxColor.NODE_PATH)
+		else:
+			if ensure_string == TokenState.STRING_NAME:
+				return EditorColors.get_syntax_color(EditorColors.SyntaxColor.STRING_NAME)
+			elif ensure_string == TokenState.STRING:
+				return EditorColors.get_syntax_color(EditorColors.SyntaxColor.STRING)
+			elif ensure_string == TokenState.NODE_PATH_LITERAL:
+				return EditorColors.get_syntax_color(EditorColors.SyntaxColor.NODE_PATH)
+			return Colors.DEFAULT_COMPLETION
 	
 	## Pass the full class path before the caret.
 	static func class_completion(code_completion:EditorCodeCompletion, class_path:String, include_built_ins:=false, update:=true):
@@ -540,10 +557,8 @@ class Helpers:
 				#print("ADDING GLOBAL::", c)
 				var dict = code_completion.get_code_complete_dict(CodeEdit.CodeCompletionKind.KIND_CONSTANT, c, c, "GDScriptInternal")
 				code_completion.add_completion_option(script_editor, dict)
-		
-		
 	
-	#! keys i-GDsc;
+	
 	static func get_font_color_for_option(option_name:String):
 		if option_name == "x":
 			return Colors.AXIS_X
@@ -557,6 +572,111 @@ class Helpers:
 			return Colors.DEFAULT_COMPLETION
 	
 	
+	enum MemberFilter { METHODS, PROPERTIES }
+
+	## Declared member types come back as type PATHS ("Node2D$$INS", "res://x.gd::Inner##Class").
+	## Anything that feeds the type back in - subpath walking, receiver resolution - needs the
+	## plain type instead.
+	static func normalize_member_type(type:String) -> String:
+		if type == "":
+			return ""
+		var type_check = GDScriptParser.Utils.type_path_get_type(type, true)
+		if type_check != "":
+			type = type_check
+		return type.trim_suffix(GDScriptParser.Keys.INS_DELIM)
+
+	## Flat {name: {"kind":…, "location":…, "type":…}} table of a resolved type's members.
+	## built_in_completion/user_class_completion add options directly, so they can't serve callers
+	## that need the raw names first - anything completing inside a string literal has to requote
+	## them. Own members win over inherited ones, and a script's native base is folded in.
+	static func collect_type_members(code_completion:EditorCodeCompletion, type:String,
+							filter:MemberFilter, include_private:=false) -> Dictionary:
+		var out := {}
+		_collect_type_members(code_completion, type, filter, include_private, out)
+		return out
+
+	static func _collect_type_members(code_completion:EditorCodeCompletion, type:String,
+							filter:MemberFilter, include_private:bool, out:Dictionary) -> void:
+		if type == "":
+			return
+		if GDScriptParser.BuiltInChecker.is_builtin_class(type):
+			_collect_built_in_members(type, filter, include_private, out)
+		elif GDScriptParser.Utils.is_absolute_path(type):
+			_collect_user_members(code_completion, type, filter, include_private, out)
+
+	static func _collect_built_in_members(type:String, filter:MemberFilter, include_private:bool, out:Dictionary) -> void:
+		var BIC = GDScriptParser.BuiltInChecker
+		var class_data_array = BIC.get_class_data(type, true)
+		for i in range(class_data_array.size()):
+			var class_data:Dictionary = class_data_array[i]
+			for member in class_data.keys():
+				if member == BIC.CLASS_NAME or out.has(member):
+					continue
+				if not include_private and member.begins_with("_"):
+					continue
+				var member_type = class_data[member].get(BIC.MEMBER_TYPE)
+				if filter == MemberFilter.METHODS:
+					if member_type != BIC.METHODS:
+						continue
+					out[member] = {
+						&"kind": CodeEdit.KIND_FUNCTION,
+						&"location": CodeEdit.LOCATION_OTHER | i,
+						&"type": "",
+					}
+				else:
+					if member_type != BIC.MEMBERS and member_type != BIC.PROPERTIES:
+						continue
+					out[member] = {
+						&"kind": CodeEdit.KIND_MEMBER,
+						&"location": CodeEdit.LOCATION_OTHER | i,
+						&"type": normalize_member_type(BIC.get_member_type(type, member)),
+					}
+
+	static func _collect_user_members(code_completion:EditorCodeCompletion, type:String,
+							filter:MemberFilter, include_private:bool, out:Dictionary) -> void:
+		var parser_data = code_completion.get_gdscript_parser().get_parser_and_class_obj_for_script(type)
+		if not parser_data:
+			return
+		var class_obj = parser_data.class_obj as GDScriptParser.ParserClass
+		if not is_instance_valid(class_obj):
+			return
+
+		var inherited_scripts = class_obj.get_inherited_scripts()
+		var inh_script_size = inherited_scripts.size()
+		var parent_mask_map := {}
+		for i in range(inh_script_size):
+			parent_mask_map[inherited_scripts[i]] = i
+
+		for dict in [class_obj.get_members(), class_obj.get_inherited_members()]:
+			for member in dict:
+				if out.has(member):
+					continue
+				if not include_private and member.begins_with("_"):
+					continue
+				var member_data:Dictionary = dict[member]
+				var member_type = member_data.get(GDScriptParser.Keys.MEMBER_TYPE)
+				var kind:CodeEdit.CodeCompletionKind
+				if filter == MemberFilter.METHODS:
+					if not member_type.ends_with("func"):
+						continue
+					kind = CodeEdit.KIND_FUNCTION
+				else:
+					# consts/classes/enums/signals are not settable via set()/get()
+					if member_type != GDScriptParser.Keys.MEMBER_TYPE_VAR and member_type != GDScriptParser.Keys.MEMBER_TYPE_STATIC_VAR:
+						continue
+					kind = CodeEdit.KIND_MEMBER
+
+				var script_path = member_data.get(GDScriptParser.Keys.SCRIPT_PATH)
+				var parent_mask_i = parent_mask_map.get(script_path, inh_script_size)
+				out[member] = {
+					&"kind": kind,
+					&"location": CodeEdit.LOCATION_PARENT_MASK | parent_mask_i,
+					&"type": normalize_member_type(class_obj.get_member_type(member, true)) if filter == MemberFilter.PROPERTIES else "",
+				}
+
+		# a script's native members are reachable through set()/call() too
+		_collect_type_members(code_completion, class_obj.script_base_type, filter, include_private, out)
+
 	static func set_code_hint(code_completion:EditorCodeCompletion, base_type:String, func_name:String):
 		var func_data = GDScriptParser.BuiltInChecker.get_func_data(base_type, func_name)
 		var script_editor = code_completion.get_code_edit()
