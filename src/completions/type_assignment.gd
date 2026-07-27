@@ -24,14 +24,13 @@ func _on_code_completion_requested(script_editor:CodeEdit) -> bool:
 	if caret_context.is_in_dictionary():
 		return false
 	var current_path = get_gdscript_parser().get_script_path()
+	
 	# import data grabbed from import_code_completion
 	var import_data = Import.get_import_data(current_path) as Import.ImportData
 	if import_data == null:
 		import_data = Import.ImportData.new()
-		import_data = {}
 	var hide_global_classes = false
 	var visible_global_classes = {}
-	#var imported_classes = import_data.get("imported_classes")
 	var global_classes = {}
 	if is_instance_valid(import_data):
 		hide_global_classes = import_data.hide_global_classes

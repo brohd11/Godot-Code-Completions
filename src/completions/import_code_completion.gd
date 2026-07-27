@@ -1,7 +1,7 @@
 extends EditorCodeCompletion
 
 #! import_show_global SyntaxPlusSingleton,
-#! import_p UClassDetail,Settings
+#! import_p UClassDetail,Settings,
 
 const HidePrivate = preload("res://addons/code_completions/src/completions/hide_private.gd")
 const HLInfo = SyntaxPlusSingleton.HLInfo
@@ -25,19 +25,16 @@ var _enable:bool = true
 var default_imports:Array = []
 var hide_global_classes_setting:= false
 var hide_global_exemptions:Array = []
+var hide_private_members = false
 
+var global_classes:Dictionary = {} #^ [name, path] ser on fs changed
 
 var _class_member_cache:Dictionary = {}
 
 var extended_class_names:Dictionary = {} #^ [name, bool] a set
 
-var global_classes:Dictionary = {} #^ [name, path]
+
 var preload_paths:Dictionary = {} #^ [path, bool] a set
-
-var show_global_classes:Dictionary = {} #^ [name, script]
-var hide_global_classes = false
-var hide_private_members = false
-
 
 var current_import_data:ImportData
 
@@ -69,6 +66,8 @@ func _singleton_ready():
 				var callable = get(callable_nm)
 				SyntaxPlusSingleton.register_highlight_callable(prefix, tag, callable, SyntaxPlusSingleton.CallableLocation.START)
 			register_tag(prefix, tag, TagLocation.START)
+	
+	EditorInterface.get_resource_filesystem().filesystem_changed.connect(_on_filesystem_changed)
 
 
 func register_editor_settings(settings_helper:SettingHelperEditor):
@@ -97,6 +96,8 @@ func _set_settings():
 	
 	_on_editor_script_changed(null)
 
+func _on_filesystem_changed():
+	global_classes = UClassDetail.get_all_global_class_paths()
 
 func _on_editor_script_changed(_script):
 	
@@ -259,13 +260,14 @@ func _get_class_members(parser:GDScriptParser, path:String):
 
 
 func _get_script_imports():
+	var t = GDScriptParser.TF.new("SCRIPT IMPORTS")
 	global_classes = UClassDetail.get_all_global_class_paths()
 	
 	current_import_data = null
 	
 	var script_editor = get_code_edit()
 	if script_editor == null:
-		return []
+		return 
 	
 	
 	var parser = get_gdscript_parser()
@@ -277,48 +279,20 @@ func _get_script_imports():
 		current_import_data = cached
 		return
 	
-	var import_preloads := false
+	var tt = GDScriptParser.TF.new("HINTS")
+	var current_hints = _get_current_hints(script_editor)
+	tt.stop()
 	
-	var preload_imports = []
-	var global_imports = []
-	
-	var show_all_globals := false
-	var globals_to_show = {}
+	var import_preloads:bool = current_hints.import_all_preloads
+	var preload_imports:Array = current_hints.preload_imports
+	var global_imports:Array = current_hints.global_imports
+	var show_all_globals:bool = current_hints.show_all_globals
+	var globals_to_show:Array = current_hints.globals_to_show
 	
 	var all_imports = []
 	
-	var max_count = mini(script_editor.get_line_count(), HINT_SEARCH_SCOPE)
-	var i = -1
-	var found_import:=false
-	while i < max_count:
-		i += 1
-		var line = script_editor.get_line(i)
-		if not line.begins_with("#! import"):
-			if found_import:
-				break
-			else:
-				continue
-		found_import = true
-		max_count += 1
-		var hint = line.get_slice(PREFIX, 1).strip_edges().get_slice(" ", 0).strip_edges()
-		if hint == _IMPORT_SHOW_GLOBAL_ALL:
-			show_all_globals = true
-		elif hint == _IMPORT_PRELOADS:
-			import_preloads = true
-		elif hint == _IMPORT_SHOW_GLOBAL:
-			var classes = _get_classes_in_line(line.get_slice(_IMPORT_SHOW_GLOBAL, 1).strip_edges())
-			for c in classes:
-				globals_to_show[c] = true
-		elif hint == _IMPORT_G:
-			var classes = _get_classes_in_line(line.get_slice(_IMPORT_G, 1).strip_edges())
-			global_imports.append_array(classes)
-		elif hint == _IMPORT_P:
-			var classes = _get_classes_in_line(line.get_slice(_IMPORT_P, 1).strip_edges())
-			preload_imports.append_array(classes)
-	
 	
 	var all_imported_classes = {}
-	show_global_classes.clear()
 	
 	var class_obj:GDScriptParser.ParserClass = parser.get_class_object("")
 	if import_preloads:
@@ -345,13 +319,13 @@ func _get_script_imports():
 		if resolved != "":
 			all_imported_classes[access_path] = resolved
 	
+	var hide_global_classes = true
 	print(globals_to_show)
 	print(global_imports)
 	if not hide_global_classes_setting or show_all_globals:
 		hide_global_classes = false
 	else:
-		hide_global_classes = true
-		for _class in globals_to_show.keys():
+		for _class in globals_to_show:
 			var path = UClassDetail.get_global_class_path(_class)
 			if path == "":
 				globals_to_show.erase(_class)
@@ -381,6 +355,7 @@ func _get_script_imports():
 	var import_data_cache = singleton.peristent_cache.get_or_add(&"import_data", {})
 	CacheHelper.store_data(parser_script, import_data, import_data_cache, [parser_script])
 	
+	t.stop()
 	#set_data("import_data", import_data)
 
 static func get_import_data(path:String):
@@ -389,7 +364,6 @@ static func get_import_data(path:String):
 	return CacheHelper.get_cached_data(path, import_data_cache)
 
 func _get_global_and_preloads():
-	global_classes = UClassDetail.get_all_global_class_paths()
 	
 	#preload_paths.clear()
 	#var preloads = UClassDetail.script_get_preloads(get_current_script())
@@ -412,6 +386,7 @@ func _import_syntax_hl(script_editor:CodeEdit, current_line_text:String, _line:i
 	var global_class_color = sp_ins.user_type_color
 	var preload_class_color = sp_ins.global_function_color
 	var symbol_color = sp_ins.symbol_color
+	var fail_color = Color.FIREBRICK
 	
 	var comment_text = current_line_text.substr(comment_tag_idx)
 	hl_info.merge(HLInfo.highlight_prefix(PREFIX, comment_text))
@@ -422,7 +397,7 @@ func _import_syntax_hl(script_editor:CodeEdit, current_line_text:String, _line:i
 	var show_global_hint = hint == _IMPORT_SHOW_GLOBAL # list globals to show
 	var show_global_all_hint = hint == _IMPORT_SHOW_GLOBAL_ALL # shows all in the file, overides editor setting
 	if not hide_global_classes_setting and (show_global_hint or show_global_all_hint):
-		hl_info.merge(HLInfo.highlight_tag(hint, comment_text, Color.FIREBRICK))
+		hl_info.merge(HLInfo.highlight_tag(hint, comment_text, fail_color))
 		return hl_info
 	elif hide_global_classes_setting and show_global_all_hint:
 		hl_info.merge(HLInfo.highlight_tag(hint, comment_text))
@@ -452,7 +427,8 @@ func _import_syntax_hl(script_editor:CodeEdit, current_line_text:String, _line:i
 		if _class_name in in_scope_class_names:
 			var hl_color = class_color
 			if extended_class_names.has(_class_name) and not show_global_hint: #^ show global hint to allow showing self
-				hl_color = Color.FIREBRICK
+				hl_color = fail_color
+			
 			var idx = find_indentifier_in_line(comment_text, _class_name)
 			if idx == -1:
 				continue
@@ -487,54 +463,91 @@ func _get_current_classes_of_hint(hint:String, script_editor:CodeEdit):
 		if not line.find(hint) > -1:
 			continue
 		
-		var current_classes_str = line.get_slice(hint, 1).strip_edges()
-		var current_classes = current_classes_str.split(",",false)
-		for i_slice in range(current_classes.size()):
-			var nm = current_classes[i_slice]
-			nm = nm.strip_edges()
-			current_classes[i_slice] = nm
-		classes_array.append_array(current_classes)
+		classes_array.append_array(_get_classes_in_line(line.get_slice(hint, 1).strip_edges()))
 	
 	return classes_array
+
+#! keys import_all_preloads:bool show_all_globals:bool
+#! keys preload_imports:Array global_imports:Array globals_to_show:Array
+func _get_current_hints(script_editor:CodeEdit):
+	var import_all_preloads := false
+	var show_all_globals := false
+	var preload_imports = []
+	var global_imports = []
+	var globals_to_show = {}
+	
+	var max_count = mini(script_editor.get_line_count(), HINT_SEARCH_SCOPE)
+	var i = -1
+	var found_import:=false
+	while i < max_count:
+		i += 1
+		var line = script_editor.get_line(i)
+		if not line.begins_with("#! import"):
+			if found_import:
+				break
+			else:
+				continue
+		found_import = true
+		max_count += 1
+		var hint = _get_hint_type_from_line(line)
+		if hint == _IMPORT_SHOW_GLOBAL_ALL:
+			show_all_globals = true
+		elif hint == _IMPORT_PRELOADS:
+			import_all_preloads = true
+		elif hint == _IMPORT_SHOW_GLOBAL:
+			var classes = _get_classes_in_line(line.get_slice(_IMPORT_SHOW_GLOBAL, 1).strip_edges())
+			for c in classes:
+				globals_to_show[c] = true
+		elif hint == _IMPORT_G:
+			var classes = _get_classes_in_line(line.get_slice(_IMPORT_G, 1).strip_edges())
+			global_imports.append_array(classes)
+		elif hint == _IMPORT_P:
+			var classes = _get_classes_in_line(line.get_slice(_IMPORT_P, 1).strip_edges())
+			preload_imports.append_array(classes)
+	
+	return {
+		"import_all_preloads": import_all_preloads,
+		"show_all_globals": show_all_globals,
+		"preload_imports": preload_imports,
+		"global_imports": global_imports,
+		"globals_to_show": globals_to_show.keys(),
+	}
 
 
 func _import_hint_autocomplete(current_line_text:String):
 	var script_editor = get_code_edit()
 	var options = []
-	var tag = "#! "
-	var full_show_global_hint = tag + _IMPORT_SHOW_GLOBAL
-	var full_g_hint = tag + _IMPORT_G
-	var full_p_hint = tag + _IMPORT_P
-	if current_line_text.begins_with(full_g_hint):
-		var current_classes = _get_current_classes_of_hint(full_g_hint, script_editor)
+	
+	var hint_type = _get_hint_type_from_line(current_line_text)
+	if hint_type == "":
+		return []
+	
+	var current_hints = _get_current_hints(script_editor)
+	if hint_type == _IMPORT_G:
 		_get_global_and_preloads()
 		var class_names = global_classes.keys()
 		for _name in class_names:
+			if _name in current_hints.global_imports:
+				continue
 			if extended_class_names.has(_name):
 				continue
-			if _name in current_classes:
-				continue
 			var completion = get_code_complete_dict(CodeEdit.CodeCompletionKind.KIND_CLASS, _name, _name + ",", "Object")
 			options.append(completion)
-	elif current_line_text.begins_with(full_show_global_hint):
-		var current_classes = _get_current_classes_of_hint(full_show_global_hint, script_editor)
-		_get_global_and_preloads()
-		var class_names = global_classes.keys()
-		for _name in class_names:
-			if _name in current_classes:
+	elif hint_type == _IMPORT_SHOW_GLOBAL:
+		for _name in global_classes.keys():
+			if _name in current_hints.globals_to_show:
 				continue
 			if _name in hide_global_exemptions:
-				continue
+				continue # skip this because irrelavent
 			var completion = get_code_complete_dict(CodeEdit.CodeCompletionKind.KIND_CLASS, _name, _name + ",", "Object")
 			options.append(completion)
-	elif current_line_text.begins_with(full_p_hint):
-		var current_classes = _get_current_classes_of_hint(full_p_hint, script_editor)
+	elif hint_type == _IMPORT_P:
 		var current_script = get_current_script()
 		var preloads = UClassDetail.script_get_preloads(current_script, true, true) #^ this may want to be changed a bit, doesn't need a deep search, also above in highlighting
 		for _name in preloads.keys():
-			if _name.find(".") > -1:
+			if _name in current_hints.preload_imports:
 				continue
-			if _name in current_classes:
+			if _name.find(".") > -1:
 				continue
 			var completion = get_code_complete_dict(CodeEdit.CodeCompletionKind.KIND_CLASS, _name, _name + ",", "Object")
 			options.append(completion)
@@ -563,6 +576,11 @@ func _existing_is_enum(existing_options:Array):
 			if o.kind != CodeEdit.CodeCompletionKind.KIND_ENUM:
 				return false
 	return true
+
+func _get_hint_type_from_line(line_text:String):
+	if not line_text.begins_with(PREFIX):
+		return ""
+	return line_text.trim_prefix(PREFIX).strip_edges().get_slice(" ", 0).strip_edges()
 
 const _SKIP_KEYWORDS = {
 	"pass":true,
@@ -593,7 +611,7 @@ class ImportData:
 	var global_classes:Dictionary = {}
 	var hide_global_classes:bool = false
 	var hide_global_exemption:Array = []
-	var visible_global_classes:Dictionary = {}
+	var visible_global_classes:Array = []
 	var imported_classes:Dictionary = {}
 	
 	func _init() -> void:
