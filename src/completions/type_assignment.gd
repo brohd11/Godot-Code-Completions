@@ -23,9 +23,9 @@ func _on_code_completion_requested(script_editor:CodeEdit) -> bool:
 		return false
 	if caret_context.is_in_dictionary():
 		return false
-	
+	var current_path = get_gdscript_parser().get_script_path()
 	# import data grabbed from import_code_completion
-	var import_data = get_data("import_data") as Import.ImportData
+	var import_data = Import.get_import_data(current_path) as Import.ImportData
 	if import_data == null:
 		import_data = Import.ImportData.new()
 		import_data = {}

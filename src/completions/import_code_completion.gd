@@ -419,8 +419,8 @@ func _import_syntax_hl(script_editor:CodeEdit, current_line_text:String, _line:i
 	var substr = current_line_text.substr(comment_tag_idx + 2).strip_edges()
 	var hint = substr.get_slice(" ", 0).strip_edges()
 	
-	var show_global_hint = hint == _IMPORT_SHOW_GLOBAL
-	var show_global_all_hint = hint == _IMPORT_SHOW_GLOBAL_ALL
+	var show_global_hint = hint == _IMPORT_SHOW_GLOBAL # list globals to show
+	var show_global_all_hint = hint == _IMPORT_SHOW_GLOBAL_ALL # shows all in the file, overides editor setting
 	if not hide_global_classes_setting and (show_global_hint or show_global_all_hint):
 		hl_info.merge(HLInfo.highlight_tag(hint, comment_text, Color.FIREBRICK))
 		return hl_info

@@ -1,19 +1,39 @@
 extends EditorCodeCompletion
 
+const EditorColors = UtilsRemote.EditorColors
+const UTexture = UtilsRemote.UTexture
+
 var _enable:bool = true
+var _edthm_shortcut:bool = false
+var _type_variation_enable:bool = true
+
+var _color_icon_cache:= {}
 
 func register_editor_settings(settings_helper:SettingHelperEditor):
 	settings_helper.subscribe_property(self, &"_enable", EditorSet.ENABLE, true)
+	settings_helper.subscribe_property(self, &"_edthm_shortcut", EditorSet.EDITOR_THEME_SHORTCUT, false)
+	settings_helper.subscribe_property(self, &"_type_variation_enable", EditorSet.TYPE_VARIATION_ENABLE, true)
 
 
 func _on_code_completion_requested(script_editor:CodeEdit) -> bool:
 	if not _enable:
 		return false
 	var caret_context = get_caret_context()
-	if not caret_context.is_in_function_call() or caret_context.token_state == TokenState.COMMENT:
+	if caret_context.token_state == TokenState.COMMENT:
 		return false
 	
 	var in_string = caret_context.token_state == TokenState.STRING or caret_context.token_state == TokenState.STRING_NAME
+	
+	if _edthm_shortcut and caret_context.expression_before_caret.begins_with("edthm"):
+		if caret_context.token_state == TokenState.NONE and caret_context.expression_state != ExpressionState.MEMBER_ACCESS:
+			_editor_theme_quick_complete(script_editor)
+	
+	if _type_variation_enable and caret_context.expression_state == ExpressionState.ASSIGNMENT:
+		if _add_type_variations(script_editor, caret_context, caret_context.token_state):
+			return true
+	
+	if not caret_context.is_in_function_call():
+		return false
 	
 	var func_call_data = caret_context.get_function_call_data()
 	if func_call_data.current_arg_index > 0:
@@ -31,42 +51,140 @@ func _on_code_completion_requested(script_editor:CodeEdit) -> bool:
 		return false
 	
 	match func_name:
-		"get_icon": _add_icons(script_editor, in_string, append_editor_thm)
-		"get_color": _add_colors(script_editor, in_string, append_editor_thm)
+		"get_icon": _add_icons(script_editor, caret_context.token_state, append_editor_thm)
+		"get_color": _add_colors(script_editor, caret_context.token_state, append_editor_thm)
 	return true
 
-
-func _add_icons(script_editor:CodeEdit, in_string:bool=false, append_thm_type:bool=false):
-	var kind = CodeEdit.KIND_FILE_PATH if in_string else CodeEdit.KIND_VARIABLE
-	var icons = editor_theme.get_icon_list(&"EditorIcons")
-	icons.sort()
-	for icon_name in icons:
-		var insert = icon_name
-		if not in_string:
-			insert = '&"%s"' % icon_name
-		if append_thm_type:
-			insert += ', &"EditorIcons"'
-		var icon = editor_theme.get_icon(icon_name, &"EditorIcons")
-		script_editor.add_code_completion_option(kind, icon_name, insert, Helpers.Colors.DEFAULT_COMPLETION, icon)
+func _editor_theme_quick_complete(script_editor:CodeEdit):
+	var completions = [
+		"var edthm = EditorInterface.get_editor_theme()",
+		"EditorInterface.get_editor_theme().get_color(",
+		"EditorInterface.get_editor_theme().get_icon(",
+	]
+	
+	for c in completions:
+		var insert = c
+		add_completion_option(script_editor,
+			get_code_complete_dict(
+				CodeEdit.KIND_FUNCTION,
+				Helpers.complete_function_display(c),
+				insert,
+				"Theme",
+				)
+			)
 	
 	update_completion_options(true)
 
-func _add_colors(script_editor:CodeEdit, in_string:bool=false, append_thm_type:bool=false):
+
+func _add_icons(script_editor:CodeEdit, in_string:=TokenState.NONE, append_thm_type:bool=false):
+	var kind = CodeEdit.KIND_FILE_PATH if in_string else CodeEdit.KIND_VARIABLE
+	var icons = editor_theme.get_icon_list(&"EditorIcons")
+	var comp_color = _get_string_color(in_string)
+	icons.sort()
+	for icon_name in icons:
+		var ins_disp = _get_display_and_insert(icon_name, in_string, "EditorIcons" if append_thm_type else "")
+
+		var icon = editor_theme.get_icon(icon_name, &"EditorIcons")
+		script_editor.add_code_completion_option(kind, ins_disp[0], ins_disp[1], comp_color, icon)
+	
+	update_completion_options(true)
+
+func _add_colors(script_editor:CodeEdit, in_string:=TokenState.NONE, append_thm_type:bool=false):
 	var kind = CodeEdit.KIND_FILE_PATH if in_string else CodeEdit.KIND_VARIABLE
 	var colors = editor_theme.get_color_list(&"Editor")
-	var icon = editor_theme.get_icon(&"Color", &"EditorIcons")
+	var comp_color = _get_string_color(in_string)
 	
 	colors.sort()
 	for color_name in colors:
-		var insert = color_name
-		if not in_string:
-			insert = '&"%s"' % color_name
-		if append_thm_type:
-			insert += ', &"Editor"'
+		var ins_disp = _get_display_and_insert(color_name, in_string, "Editor" if append_thm_type else "")
 		var color = editor_theme.get_color(color_name, "Editor")
-		script_editor.add_code_completion_option(kind, color_name, insert, color, icon)
+		var sq = _color_icon_cache.get(color)
+		if sq == null:
+			sq = UTexture.create_rect_texture(color, int(16 * EditorInterface.get_editor_scale()))
+		script_editor.add_code_completion_option(kind, ins_disp[0], ins_disp[1], comp_color, sq)
 	
 	update_completion_options(true)
 
+## Offers editor theme type variations on `theme_type_variation = |` assignments. The instance
+## type comes from the receiver expression, or this script's own base type for the bare property.
+func _add_type_variations(script_editor:CodeEdit, caret_context:CaretContext, in_string:=TokenState.NONE) -> bool:
+	var op_data = caret_context.get_operation_data()
+	if not op_data.is_valid:
+		return false
+	var left = op_data.left_text.strip_edges()
+	if left != "theme_type_variation" and not left.ends_with(".theme_type_variation"):
+		return false
+	
+	var base_type = ""
+	if left == "theme_type_variation": # implicit self
+		base_type = op_data.class_obj.script_base_type
+	else:
+		var receiver = left.trim_suffix(".theme_type_variation")
+		var resolved = caret_context.resolve_expression_to_type(receiver)
+		var type_check = GDScriptParser.Utils.type_path_get_type(resolved, true)
+		if type_check != "":
+			resolved = type_check
+		resolved = resolved.trim_suffix(ParserKeys.INS_DELIM)
+		if GDScriptParser.Utils.is_absolute_path(resolved): # script class - theme types key on the native base
+			var parser_data = get_gdscript_parser().get_parser_and_class_obj_for_script(resolved)
+			if not parser_data or not is_instance_valid(parser_data.class_obj):
+				return false
+			resolved = parser_data.class_obj.script_base_type
+		base_type = resolved
+	
+	if not (ClassDB.class_exists(base_type) and ClassDB.is_parent_class(base_type, "Control")):
+		return false
+	
+	var variations = {}
+	var type = base_type
+	while true: # direct lookup, then walk the Control ancestry (Button -> BaseButton -> Control)
+		for variation in editor_theme.get_type_variation_list(type):
+			variations[variation] = true
+		if type == "Control":
+			break
+		type = ClassDB.get_parent_class(type)
+	
+	if variations.is_empty():
+		return false
+	
+	var comp_color = _get_string_color(in_string)
+	var comp_icon = EditorInterface.get_editor_theme().get_icon(base_type, &"EditorIcons")
+	var names = variations.keys()
+	names.sort()
+	for variation_name in names:
+		var disp_ins = _get_display_and_insert(variation_name, in_string)
+		script_editor.add_code_completion_option(CodeEdit.KIND_VARIABLE, disp_ins[0], disp_ins[1], comp_color, comp_icon)
+	
+	update_completion_options(true)
+	return true
+
+
+func _get_display_and_insert(insert, in_string:=TokenState.NONE, theme_type:String=""):
+	var display = insert
+	var new_insert = insert
+	var string_name = in_string != TokenState.STRING
+	if in_string:
+		return [display, insert]
+	if theme_type != "":
+		new_insert = '"%s", &"%s"' % [insert, theme_type]
+		if string_name:
+			new_insert = "&" + new_insert
+		display = new_insert
+	else:
+		new_insert = '"%s"' % insert
+		if string_name:
+			new_insert = "&" + new_insert
+		display = new_insert
+	return [display, new_insert]
+
+func _get_string_color(string:TokenState):
+	if string == TokenState.STRING:
+		return EditorColors.get_syntax_color(EditorColors.SyntaxColor.STRING)
+	else:
+		return EditorColors.get_syntax_color(EditorColors.SyntaxColor.STRING_NAME)
+
+
 class EditorSet:
 	const ENABLE = &"plugin/code_completion/editor_theme/enable"
+	const EDITOR_THEME_SHORTCUT = &"plugin/code_completion/editor_theme/shortcut"
+	const TYPE_VARIATION_ENABLE = &"plugin/code_completion/editor_theme/theme_type_variation_enable"

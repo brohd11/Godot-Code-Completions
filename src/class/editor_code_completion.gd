@@ -186,6 +186,11 @@ class Helpers:
 	const DOTS_UNICODE = "(\u2026)"
 	const TAG_ICON_NAME = "BoneMapperHandleCircle"
 	
+	static func complete_function_display(insert:String):
+		if not insert.ends_with("("):
+			return insert
+		return insert.trim_suffix("(") + DOTS_UNICODE
+	
 	## Pass the full class path before the caret.
 	static func class_completion(code_completion:EditorCodeCompletion, class_path:String, include_built_ins:=false, update:=true):
 		var script_editor = code_completion.get_code_edit()
