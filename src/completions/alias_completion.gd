@@ -15,8 +15,7 @@ const PLACEHOLDER_TOKEN = "%s"
 const PLACEHOLDER = "placeholder"
 const BLANK_ARG = "_" # a lone underscore asks for an empty substitution
 const ARG_SEPARATOR = "/" # the parser counts '/' as an identifier char, so it survives to us intact
-const HIDDEN_PREFIX = "_" # reachable only by typing the separator first: "/icon" -> "_icon"
-const HELPER_PREFIX = "__" # never an alias
+const HELPER_PREFIX = "_" # never an alias
 
 var _enable:bool = true
 
@@ -74,24 +73,29 @@ func _on_code_completion_requested(script_editor:CodeEdit) -> bool:
 	var expression = caret_context.expression_before_caret
 	if expression == "":
 		return false
-	# a leading separator is the request for a hidden alias; "/icon" looks up "_icon"
-	var hidden = expression.begins_with(ARG_SEPARATOR)
-	var lookup = HIDDEN_PREFIX + expression.trim_prefix(ARG_SEPARATOR) if hidden else expression
+	# the separator is the only way in - without it the provider is inert, which keeps ordinary words
+	# like "for" or "export" from consuming the request at priority 2
+	if not expression.begins_with(ARG_SEPARATOR):
+		return false
+	var lookup = expression.substr(ARG_SEPARATOR.length())
 
 	var key = longest_key(_aliases, lookup)
-	# hidden aliases are reachable ONLY through the separator - that is what hiding them buys
-	if key == "" or key.begins_with(HIDDEN_PREFIX) != hidden:
-		return false
+	if key == "":
+		# nothing to invoke, so offer the keys still reachable from what has been typed
+		return _add_menu_options(script_editor, lookup)
 
 	var indent = get_line_indent(caret_context.current_line_text)
 	var entry:Dictionary = _aliases[key]
 	var typed = lookup.substr(key.length())
 	var args = split_args(typed)
 	var matched = false
-
+	
 	# what the user actually typed, which is what Godot filters the display against and what an
-	# insert has to reproduce - the stored key carries "_" where the buffer carries "/"
-	var display_key = ARG_SEPARATOR + key.trim_prefix(HIDDEN_PREFIX) if hidden else key
+	# insert has to reproduce - the stored key carries no separator, the buffer does
+	var display_key = ARG_SEPARATOR + key
+	# only the arguments the alias CONSUMES join the prefix; anything past them stays out so it has
+	# to match a row's body, which is what keeps "/iconact" narrowing a zero argument builder
+	var prefix = display_key + split_consumed(typed, entry.slots)[0]
 
 	# for templates the widest placeholder count, for a builder its parameter count
 	var max_slots:int = entry.slots
@@ -102,42 +106,45 @@ func _on_code_completion_requested(script_editor:CodeEdit) -> bool:
 		var open_parts = split_open_arg(typed)
 		if not open_parts.is_empty():
 			var closed = display_key + open_parts[0]
+			# names never replace the finished completion any more - it is always offered too, so
+			# there is always something to accept no matter how many arguments are filled
 			if open_parts[1] != "":
-				# still typing an argument: names replace the snippets, which would only be noise
-				if _add_name_options(script_editor, caret_context, closed, open_parts[1]):
-					update_completion_options(true)
-					return true
+				matched = _add_name_options(script_editor, caret_context, closed, open_parts[1])
 			elif typed.contains(ARG_SEPARATOR) and filled_arg_count(args) < max_slots:
-				# closed with a slot still empty - offer names, but keep the snippet rows too,
-				# since nothing has been committed to that slot yet
 				matched = _add_name_options(script_editor, caret_context, closed, "")
 
 	if entry.build is Callable:
 		# an empty result just adds no rows - returning here would orphan any name options already
 		# added above, leaving them in the popup with the request unconsumed
 		var expects = entry.slots if typed.contains(ARG_SEPARATOR) and filled_arg_count(args) < entry.slots else 0
-		var display_arg = display_arg_for(typed, entry.slots)
-		for insert:String in _call_builder(key, entry, args):
-			var cc_dict = get_code_complete_dict(CodeEdit.KIND_PLAIN_TEXT,
-					make_display(display_key, insert, display_arg, expects),
-					apply_indent(insert, indent), "Shortcut")
+		for row in _call_builder(key, entry, args):
+			var cc_dict:Dictionary
+			if row is Dictionary:
+				# the builder owns the body; the prefix stays ours, since it carries the typed run
+				cc_dict = row
+				cc_dict[&"display_text"] = make_display(prefix, cc_dict[&"display_text"], expects)
+				cc_dict[&"insert_text"] = apply_indent(cc_dict[&"insert_text"], indent)
+			else:
+				cc_dict = get_code_complete_dict(CodeEdit.KIND_PLAIN_TEXT,
+						make_display(prefix, row, expects),
+						apply_indent(row, indent), "Shortcut", null, CodeEdit.LOCATION_LOCAL)
 			add_completion_option(script_editor, cc_dict)
 			matched = true
 	else:
 		for text:String in entry.options:
 			var slots = placeholder_count(text)
-			if slots == 0 and typed != "": # plain option, the trailing text isn't ours - leave it to the chain
+			# arg_text, not typed: a lone separator means the list was opened and nothing supplied,
+			# which is not foreign text - menu inserts always end in one
+			if slots == 0 and arg_text(typed) != "": # the trailing text isn't ours - leave it to the chain
 				continue
 			# only nag when they're clearly going positional and came up short - a template whose
 			# slots all want the same string is complete with one argument
 			var expects = slots if typed.contains(ARG_SEPARATOR) and filled_arg_count(args) < slots else 0
 			var insert = substitute(text, args) if slots > 0 else text
-			# the display carries what was TYPED, separators and all: Godot subsequence matches the
-			# typed run against it, so dropping them would filter the option out of the popup
-			var display_arg = display_arg_for(typed, slots)
 
 			var cc_dict = get_code_complete_dict(CodeEdit.KIND_PLAIN_TEXT,
-					make_display(display_key, insert, display_arg, expects), apply_indent(insert, indent), "Shortcut")
+					make_display(prefix, insert, expects), apply_indent(insert, indent),
+					"Shortcut", null, CodeEdit.LOCATION_LOCAL)
 			add_completion_option(script_editor, cc_dict)
 			matched = true
 
@@ -147,33 +154,83 @@ func _on_code_completion_requested(script_editor:CodeEdit) -> bool:
 	update_completion_options(true)
 	return true
 
+
+## The keys still reachable from what has been typed, one row each. Deliberately does NOT expand the
+## aliases: that would mean calling every builder, and icon/iconed produce ~1000 rows apiece, so a
+## bare separator would list thousands. Returns whether anything was added.
+func _add_menu_options(script_editor:CodeEdit, prefix:String) -> bool:
+	var keys = keys_starting_with(_aliases, prefix)
+	for key:String in keys:
+		var entry:Dictionary = _aliases[key]
+		var single = entry.options.size() == 1 and entry.slots == 0
+		var display = key + " -> " + entry.options[0] if single else key
+		var insert:String = entry.options[0] if single else make_menu_insert(key)
+		var cc_dict = get_code_complete_dict(CodeEdit.KIND_PLAIN_TEXT,
+				make_display(ARG_SEPARATOR, display, entry.slots),
+				insert, "Shortcut")
+		add_completion_option(script_editor, cc_dict)
+
+	if keys.is_empty():
+		return false
+	update_completion_options(true)
+	return true
+
+
 ## A user script can be edited into any state, so a builder that returns nothing usable is reported
 ## and skipped rather than left to put junk in the popup.
-func _call_builder(key:String, entry:Dictionary, args:PackedStringArray) -> Array[String]:
+func _call_builder(key:String, entry:Dictionary, args:PackedStringArray) -> Array:
 	# build_args sizes the call for any arity - it pads to `required` and truncates to `slots`, and
 	# yields [] for a zero parameter builder, where callv([]) is exactly call()
 	var result = entry.build.callv(build_args(args, entry.required, entry.slots))
 	if result == null:
 		printerr("Code Completions - aliases: '%s' returned nothing." % key)
-		return [] as Array[String]
-	if not (result is String or result is Array or result is PackedStringArray):
-		printerr("Code Completions - aliases: '%s' returned non string/array: %s" % [key, result])
-		return [] as Array[String]
+		return []
+	if not (result is String or result is Dictionary or result is Array or result is PackedStringArray):
+		printerr("Code Completions - aliases: '%s' returned non string/array/dict: %s" % [key, result])
+		return []
 	return builder_options(result)
 
 
-## A builder's return as rows: one for a string, one per element for an array. A trailing break would
-## drop the caret onto a blank line, and empty rows are dropped, both the way parse_aliases does it.
-static func builder_options(result) -> Array[String]:
-	var out:Array[String] = []
-	if result is String:
+## A builder's return as rows: one for a string, one per element for an array. An element may be a
+## dict in get_code_complete_dict_static's shape, which is how a long insert carries a short display
+## - Godot scores the typed run against display_text, and boilerplate in front of the distinguishing
+## part wrecks it. A trailing break would drop the caret onto a blank line, and empty rows are
+## dropped, both the way parse_aliases does it.
+static func builder_options(result) -> Array:
+	var out := []
+	if result is String or result is Dictionary:
 		result = [result]
 	elif not (result is Array or result is PackedStringArray):
 		return out
 	for option in result:
+		if option is Dictionary:
+			var row = normalize_row(option)
+			if not row.is_empty():
+				out.append(row)
+			continue
 		var text = str(option).rstrip("\n")
 		if text != "":
 			out.append(text)
+	return out
+
+## Fills a builder's row dict out to get_code_complete_dict_static's shape. add_completion_option
+## reads all seven keys by dot access, so every one has to be present or a partial dict fails the
+## call. Returns {} when there is nothing to show, so the caller can drop it.
+static func normalize_row(row:Dictionary) -> Dictionary:
+	var insert = str(row.get(&"insert_text", "")).rstrip("\n")
+	var display = str(row.get(&"display_text", insert))
+	if insert == "":
+		insert = display
+	if display == "" and insert == "":
+		return {}
+	var out = row.duplicate()
+	out[&"display_text"] = display
+	out[&"insert_text"] = insert
+	out[&"kind"] = row.get(&"kind", CodeEdit.KIND_PLAIN_TEXT)
+	out[&"font_color"] = row.get(&"font_color", Helpers.Colors.DEFAULT_COMPLETION)
+	out[&"icon"] = row.get(&"icon", null)
+	out[&"default_value"] = row.get(&"default_value", null)
+	out[&"location"] = row.get(&"location", 1024)
 	return out
 
 
@@ -188,8 +245,9 @@ func _add_name_options(script_editor:CodeEdit, caret_context:CaretContext, close
 		if open_arg != "" and not name.containsn(open_arg):
 			continue
 		var data:Dictionary = names[name]
+		# never 0: the finished completion sits at LOCATION_LOCAL and should out-sort the names
 		var cc_dict = get_code_complete_dict(data.kind, make_name_display(closed, name),
-				make_name_insert(closed, name), "property", null, data.location)
+				make_name_insert(closed, name), "property", null, maxi(data.location, 1))
 		add_completion_option(script_editor, cc_dict)
 		added = true
 	return added
@@ -224,7 +282,7 @@ func _reload_if_changed() -> void:
 		return
 	_loaded_dir = dir
 	_last_modified = stamp
-
+	
 	_aliases.clear()
 	var errors := []
 	if FileAccess.file_exists(yml_path):
@@ -312,7 +370,7 @@ static func collect_script_aliases(script:Script, out:Dictionary) -> Array:
 
 	var constants = script.get_script_constant_map()
 	for name:String in constants:
-		if name.begins_with("__"):
+		if name.begins_with(HELPER_PREFIX):
 			continue
 		var value = constants[name]
 		var texts:Array[String] = []
@@ -332,7 +390,7 @@ static func collect_script_aliases(script:Script, out:Dictionary) -> Array:
 
 	for method:Dictionary in script.get_script_method_list():
 		var name:String = method.get("name", "")
-		if name.begins_with("__") or not UNode.has_static_method_compat(name, script):
+		if name.begins_with(HELPER_PREFIX) or not UNode.has_static_method_compat(name, script):
 			continue
 		var args:Array = method.get("args", [])
 		var defaults:Array = method.get("default_args", [])
@@ -359,6 +417,22 @@ static func build_args(args:PackedStringArray, required:int, slots:int) -> Array
 	for i in out.size():
 		out[i] = resolve_arg(out[i])
 	return out
+
+## Keys the typed text is still a prefix OF - the browse direction, the opposite of longest_key's
+## invoke direction, which is why that one can't serve the menu. An empty prefix is a prefix of
+## everything, so a bare separator lists the lot.
+static func keys_starting_with(aliases:Dictionary, prefix:String) -> PackedStringArray:
+	var out := PackedStringArray()
+	for key:String in aliases:
+		if key.to_lower().begins_with(prefix.to_lower()):
+			out.append(key)
+	out.sort()
+	return out
+
+## A menu row completes the key, always with a trailing separator so the insert re-triggers the
+## popup - an alias with no arguments needs that just as much, to show its rows.
+static func make_menu_insert(key:String) -> String:
+	return ARG_SEPARATOR + key + ARG_SEPARATOR
 
 ## The most specific key the expression starts with. Overlapping keys are normal once a key holds
 ## variants (for / fori / forib), and the longest is always the one meant - picking the first match
@@ -412,12 +486,30 @@ static func filled_arg_count(args:PackedStringArray) -> int:
 			count += 1
 	return count
 
-## The argument shown in the prefix. An entry that takes no arguments has nothing to name, or a zero
-## parameter builder like `_icon` would read "(/icon placeholder)" against a row it never fills.
-static func display_arg_for(typed:String, slots:int) -> String:
-	if slots <= 0:
-		return ""
-	return typed if typed != "" else PLACEHOLDER
+## Argument text past the key with the separator that introduces it removed - "/" alone means the
+## list was opened but nothing supplied, which has to read the same as nothing typed at all.
+static func arg_text(typed:String) -> String:
+	return typed.trim_prefix(ARG_SEPARATOR)
+
+## Splits argument text into the part the alias consumes and any excess, as [consumed, rest]. The
+## prefix carries only the consumed part, so excess still has to match a row's BODY - that is what
+## lets "/iconact" narrow a zero argument builder instead of matching every row on the prefix alone.
+static func split_consumed(typed:String, slots:int) -> PackedStringArray:
+	# the separator that opened the list belongs to the consumed part: "/icon/" reads as "arguments
+	# opened", so it has to sit in the prefix or the typed run stops matching
+	var consumed = ARG_SEPARATOR if typed.begins_with(ARG_SEPARATOR) else ""
+	var rest = typed.substr(consumed.length())
+	var taken = 0
+	while taken < slots and rest != "":
+		var next = rest.find(ARG_SEPARATOR)
+		if next == -1:
+			consumed += rest
+			rest = ""
+		else:
+			consumed += rest.substr(0, next + 1)
+			rest = rest.substr(next + 1)
+		taken += 1
+	return PackedStringArray([consumed, rest])
 
 static func placeholder_count(text:String) -> int:
 	return text.count(PLACEHOLDER_TOKEN)
@@ -438,17 +530,21 @@ static func _arg_at(args:PackedStringArray, index:int) -> String:
 		return PLACEHOLDER
 	return resolve_arg(args[mini(index, args.size() - 1)])
 
-static func make_display(key:String, insert:String, arg:String="", expects:int=0) -> String:
+## The prefix is the typed run, contiguous, so Godot matches it as a plain substring rather than a
+## scattered subsequence - a space in the middle is what made long argument runs score badly enough
+## to drop out of the popup.
+static func make_display(prefix:String, insert:String, expects:int=0) -> String:
 	var first = insert.get_slice("\n", 0)
 	if first.length() > DISPLAY_MAX:
 		first = first.substr(0, DISPLAY_MAX).rstrip(" \t") + ELLIPSIS
 	elif insert.contains("\n"):
 		first += " " + ELLIPSIS
-	var prefix = "(%s %s)" % [key, arg] if arg != "" else "(%s)" % key
-	var display = "%s %s" % [prefix, first]
+	var display = "(%s) %s" % [prefix, first]
 	if expects > 0:
 		display += " (expects %d)" % expects
 	return display
+	
+	
 
 ## Multi line inserts land verbatim, so every line past the first needs the caret line's indent.
 static func apply_indent(text:String, indent:String) -> String:

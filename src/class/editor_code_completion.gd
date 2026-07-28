@@ -137,6 +137,40 @@ func get_code_complete_dict(kind:CodeEdit.CodeCompletionKind, display_text:Strin
 		&"location":location,
 	}
 
+static func get_code_complete_dict_static(kind:CodeEdit.CodeCompletionKind, display_text:String, insert_text:String, icon_name:="",
+			font_color:=Helpers.Colors.DEFAULT_COMPLETION, default_value=null, location=1024) -> Dictionary:
+	var edthm = EditorInterface.get_editor_theme()
+	var icon
+	if icon_name == "":
+		pass
+	elif icon_name == "constructor":
+		icon = edthm.get_icon(&"MemberConstructor", &"EditorIcons")
+	elif icon_name == "const":
+		icon = edthm.get_icon(&"MemberConstant", &"EditorIcons")
+	elif icon_name == "property":
+		icon = edthm.get_icon(&"MemberProperty", &"EditorIcons")
+	elif icon_name == "signal":
+		icon = edthm.get_icon(&"MemberSignal", &"EditorIcons")
+	elif icon_name == "method":
+		icon = edthm.get_icon(&"MemberMethod", &"EditorIcons")
+	elif icon_name == "enum":
+		icon = edthm.get_icon(&"Enum", &"EditorIcons")
+	else:
+		if edthm.has_icon(icon_name, &"EditorIcons"):
+			icon = edthm.get_icon(icon_name, &"EditorIcons")
+		else:
+			icon = edthm.get_icon(&"Object", &"EditorIcons")
+	return {
+		&"kind":kind,
+		&"display_text":display_text,
+		&"insert_text":insert_text,
+		&"font_color":font_color,
+		&"icon":icon,
+		&"default_value":default_value,
+		&"location":location,
+	}
+
+
 func add_completion_option(script_editor:CodeEdit, option_dict:Dictionary) -> void:
 	script_editor.add_code_completion_option(option_dict.kind, option_dict.display_text,
 					option_dict.insert_text, option_dict.font_color, option_dict.icon, 
