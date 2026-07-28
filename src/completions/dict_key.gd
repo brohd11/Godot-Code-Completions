@@ -26,6 +26,8 @@ func _singleton_ready() -> void:
 	EditorCodeCompletion.register_tag_static(PREFIX, TAG, EditorCodeCompletionSingleton.TagLocation.ANY)
 	SyntaxPlusSingleton.register_highlight_callable(PREFIX, TAG, _syntax_highlighting, SyntaxPlusSingleton.CallableLocation.ANY)
 	
+	ScriptEditorRef.subscribe(ScriptEditorRef.Event.TEXT_CHANGED, _on_text_changed)
+	
 	TagParser.register_tag_parser(TAG, self)
 
 func register_editor_settings(settings_helper:SettingHelperEditor):
@@ -66,16 +68,21 @@ func parse_tag(raw_tags:Dictionary) -> Dictionary:
 func _on_editor_script_changed(_script) -> void:
 	_code_hint_line = -1
 
+func _on_text_changed():
+	_clear_code_hint()
+
+func _clear_code_hint():
+	if _code_hint_line == -1:
+		return
+	get_code_edit().set_code_hint("")
+
 func _on_code_completion_requested(script_editor:CodeEdit) -> bool:
 	if not _enable:
 		return false
 	
 	var caret_context = get_caret_context()
 	
-	if _code_hint_line > -1:
-		if _code_hint_line == caret_context.caret_line:
-			script_editor.set_code_hint("")
-		_code_hint_line = -1
+	_clear_code_hint()
 	
 	if caret_context.token_state == CaretContext.TokenState.COMMENT:
 		return _comment_completion(script_editor, caret_context)

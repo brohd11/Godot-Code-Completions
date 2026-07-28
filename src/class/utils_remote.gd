@@ -11,5 +11,4 @@ const EditorGDScriptParser = preload("uid://t2dewmuth0sy") #! resolve ALibEditor
 const TagParser = preload("uid://gmbyxd0dnujb") #! resolve ALibEditor.Singleton.TagParser
 
 const CacheHelper = preload("res://addons/addon_lib/brohd/alib_runtime/cache_helper/cache_helper.gd")
-const YAMLParser = preload("uid://c72xsbxjoy2kl") # addons/addon_lib/yaml_parser/yaml.gd
 const SettingHelperEditor = preload("uid://c4l4v4eufkmtx") #! resolve ALibEditor.Settings.SettingHelperEditor
