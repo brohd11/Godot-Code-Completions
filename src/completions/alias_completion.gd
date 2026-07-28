@@ -2,18 +2,35 @@ extends EditorCodeCompletion
 
 const YAMLParser = UtilsRemote.YAMLParser
 
-const ALIAS_PATH = "res://.addons/code_completions/aliases.yml"
+const UNode = UtilsRemote.UNode
+
+# not res://.addons: Godot's scanner skips dot-prefixed dirs, so a script there gets no uid and is
+# never reloaded on edit. aliases.gd has to live somewhere scanned.
+const DEFAULT_ALIAS_DIR = "res://aliases/"
+const ALIAS_YML_NAME = "aliases.yml"
+const ALIAS_SCRIPT_NAME = "aliases.gd"
 const DISPLAY_MAX = 60
 const ELLIPSIS = "…"
 const PLACEHOLDER_TOKEN = "%s"
 const PLACEHOLDER = "placeholder"
 const BLANK_ARG = "_" # a lone underscore asks for an empty substitution
 const ARG_SEPARATOR = "/" # the parser counts '/' as an identifier char, so it survives to us intact
+const HIDDEN_PREFIX = "_" # reachable only by typing the separator first: "/icon" -> "_icon"
+const HELPER_PREFIX = "__" # never an alias
 
 var _enable:bool = true
 
 var _aliases:= {}
+var _loaded_dir:String = ""
 var _last_modified:int = 0
+
+## Setter rather than a plain var: subscribe_property only assigns, so this is what makes a changed
+## setting take effect straight away instead of waiting for the next filesystem event. Declared
+## after the state it touches, since the setter reloads.
+var _alias_dir:String = DEFAULT_ALIAS_DIR:
+	set(value):
+		_alias_dir = value
+		_reload_if_changed()
 
 func _get_completion_settings() -> Dictionary:
 	return {
@@ -22,9 +39,11 @@ func _get_completion_settings() -> Dictionary:
 
 func register_editor_settings(settings_helper:SettingHelperEditor):
 	settings_helper.subscribe_property(self, &"_enable", EditorSet.ENABLE, true)
+	settings_helper.subscribe_property(self, &"_alias_dir", EditorSet.DIRECTORY, DEFAULT_ALIAS_DIR)
 
 func _on_text_changed():
-	if not _enable:
+	# with no aliases loaded there is nothing for a separator to re-trigger
+	if not _enable or _aliases.is_empty():
 		return
 	var code_edit = get_code_edit()
 	var col = code_edit.get_caret_column()
@@ -51,31 +70,38 @@ func _on_code_completion_requested(script_editor:CodeEdit) -> bool:
 		return false
 	if caret_context.expression_state == ExpressionState.MEMBER_ACCESS:
 		return false
-
+	
 	var expression = caret_context.expression_before_caret
 	if expression == "":
 		return false
-	
-	var key = longest_key(_aliases, expression)
-	if key == "":
+	# a leading separator is the request for a hidden alias; "/icon" looks up "_icon"
+	var hidden = expression.begins_with(ARG_SEPARATOR)
+	var lookup = HIDDEN_PREFIX + expression.trim_prefix(ARG_SEPARATOR) if hidden else expression
+
+	var key = longest_key(_aliases, lookup)
+	# hidden aliases are reachable ONLY through the separator - that is what hiding them buys
+	if key == "" or key.begins_with(HIDDEN_PREFIX) != hidden:
 		return false
-	
+
 	var indent = get_line_indent(caret_context.current_line_text)
-	var options:Array = _aliases[key]
-	var typed = expression.substr(key.length())
+	var entry:Dictionary = _aliases[key]
+	var typed = lookup.substr(key.length())
 	var args = split_args(typed)
 	var matched = false
-	
-	var max_slots = 0
-	for text:String in options:
-		max_slots = maxi(max_slots, placeholder_count(text))
-	
+
+	# what the user actually typed, which is what Godot filters the display against and what an
+	# insert has to reproduce - the stored key carries "_" where the buffer carries "/"
+	var display_key = ARG_SEPARATOR + key.trim_prefix(HIDDEN_PREFIX) if hidden else key
+
+	# for templates the widest placeholder count, for a builder its parameter count
+	var max_slots:int = entry.slots
+
 	# candidates belong to the KEY, not to an option - the argument being typed is the same for
 	# every one of them, so collecting per option would just duplicate the rows
 	if max_slots > 0:
 		var open_parts = split_open_arg(typed)
 		if not open_parts.is_empty():
-			var closed = key + open_parts[0]
+			var closed = display_key + open_parts[0]
 			if open_parts[1] != "":
 				# still typing an argument: names replace the snippets, which would only be noise
 				if _add_name_options(script_editor, caret_context, closed, open_parts[1]):
@@ -86,32 +112,70 @@ func _on_code_completion_requested(script_editor:CodeEdit) -> bool:
 				# since nothing has been committed to that slot yet
 				matched = _add_name_options(script_editor, caret_context, closed, "")
 
-	for text:String in options:
-		var display_arg = "" # plain options have no argument, so they stay a bare "(key)"
-		var expects = 0
-		var insert = text
-		if text.contains(PLACEHOLDER_TOKEN):
+	if entry.build is Callable:
+		# an empty result just adds no rows - returning here would orphan any name options already
+		# added above, leaving them in the popup with the request unconsumed
+		var expects = entry.slots if typed.contains(ARG_SEPARATOR) and filled_arg_count(args) < entry.slots else 0
+		var display_arg = display_arg_for(typed, entry.slots)
+		for insert:String in _call_builder(key, entry, args):
+			var cc_dict = get_code_complete_dict(CodeEdit.KIND_PLAIN_TEXT,
+					make_display(display_key, insert, display_arg, expects),
+					apply_indent(insert, indent), "Shortcut")
+			add_completion_option(script_editor, cc_dict)
+			matched = true
+	else:
+		for text:String in entry.options:
+			var slots = placeholder_count(text)
+			if slots == 0 and typed != "": # plain option, the trailing text isn't ours - leave it to the chain
+				continue
 			# only nag when they're clearly going positional and came up short - a template whose
 			# slots all want the same string is complete with one argument
-			if typed.contains(ARG_SEPARATOR) and filled_arg_count(args) < placeholder_count(text):
-				expects = placeholder_count(text)
-			insert = substitute(text, args)
+			var expects = slots if typed.contains(ARG_SEPARATOR) and filled_arg_count(args) < slots else 0
+			var insert = substitute(text, args) if slots > 0 else text
 			# the display carries what was TYPED, separators and all: Godot subsequence matches the
 			# typed run against it, so dropping them would filter the option out of the popup
-			display_arg = typed if typed != "" else PLACEHOLDER
-		elif typed != "": # plain option, the trailing text isn't ours - leave it to the chain
-			continue
+			var display_arg = display_arg_for(typed, slots)
 
-		var cc_dict = get_code_complete_dict(CodeEdit.KIND_PLAIN_TEXT,
-				make_display(key, insert, display_arg, expects), apply_indent(insert, indent), "Shortcut")
-		add_completion_option(script_editor, cc_dict)
-		matched = true
+			var cc_dict = get_code_complete_dict(CodeEdit.KIND_PLAIN_TEXT,
+					make_display(display_key, insert, display_arg, expects), apply_indent(insert, indent), "Shortcut")
+			add_completion_option(script_editor, cc_dict)
+			matched = true
 
 	if not matched:
 		return false
 
 	update_completion_options(true)
 	return true
+
+## A user script can be edited into any state, so a builder that returns nothing usable is reported
+## and skipped rather than left to put junk in the popup.
+func _call_builder(key:String, entry:Dictionary, args:PackedStringArray) -> Array[String]:
+	# build_args sizes the call for any arity - it pads to `required` and truncates to `slots`, and
+	# yields [] for a zero parameter builder, where callv([]) is exactly call()
+	var result = entry.build.callv(build_args(args, entry.required, entry.slots))
+	if result == null:
+		printerr("Code Completions - aliases: '%s' returned nothing." % key)
+		return [] as Array[String]
+	if not (result is String or result is Array or result is PackedStringArray):
+		printerr("Code Completions - aliases: '%s' returned non string/array: %s" % [key, result])
+		return [] as Array[String]
+	return builder_options(result)
+
+
+## A builder's return as rows: one for a string, one per element for an array. A trailing break would
+## drop the caret onto a blank line, and empty rows are dropped, both the way parse_aliases does it.
+static func builder_options(result) -> Array[String]:
+	var out:Array[String] = []
+	if result is String:
+		result = [result]
+	elif not (result is Array or result is PackedStringArray):
+		return out
+	for option in result:
+		var text = str(option).rstrip("\n")
+		if text != "":
+			out.append(text)
+	return out
+
 
 ## Offers the names in scope for the argument being typed. Returns whether anything matched - a miss
 ## falls back to the ordinary snippet row rather than consuming the request for an empty popup.
@@ -150,22 +214,64 @@ func _collect_names(caret_context:CaretContext) -> Dictionary:
 
 
 func _reload_if_changed() -> void:
-	if not FileAccess.file_exists(ALIAS_PATH):
-		_aliases.clear()
-		_last_modified = 0
+	var dir = _alias_dir.strip_edges()
+	var yml_path = alias_yml_path(dir)
+	var script_path = alias_script_path(dir)
+	# either file may be absent; a stamp of 0 for a missing one still changes when it appears. The
+	# directory is compared separately - moving between two missing dirs leaves the stamp at 0.
+	var stamp = _modified_stamp(yml_path) + _modified_stamp(script_path)
+	if dir == _loaded_dir and stamp == _last_modified:
 		return
-	var modified = FileAccess.get_modified_time(ALIAS_PATH)
-	if modified == _last_modified:
-		return
-	_last_modified = modified
+	_loaded_dir = dir
+	_last_modified = stamp
 
 	_aliases.clear()
-	var errors = parse_aliases(FileAccess.get_file_as_string(ALIAS_PATH), _aliases)
+	var errors := []
+	if FileAccess.file_exists(yml_path):
+		errors.append_array(parse_aliases(FileAccess.get_file_as_string(yml_path), _aliases))
+	if FileAccess.file_exists(script_path):
+		var script = load(script_path)
+		if script is Script:
+			errors.append_array(collect_script_aliases(script, _aliases))
+		else:
+			errors.append("%s is not a script." % script_path.get_file())
+
 	for error in errors:
-		printerr("Code Completions - %s: %s" % [ALIAS_PATH.get_file(), error])
+		printerr("Code Completions - aliases: %s" % error)
+
+static func _modified_stamp(path:String) -> int:
+	return FileAccess.get_modified_time(path) if FileAccess.file_exists(path) else 0
+
+static func alias_yml_path(dir:String) -> String:
+	return _alias_path(dir, ALIAS_YML_NAME)
+
+static func alias_script_path(dir:String) -> String:
+	return _alias_path(dir, ALIAS_SCRIPT_NAME)
+
+## A blank directory turns the feature off. path_join already normalises a missing or duplicated
+## trailing slash, but on an empty base it yields a bare relative name - hence the explicit guard.
+static func _alias_path(dir:String, file_name:String) -> String:
+	dir = dir.strip_edges()
+	if dir == "":
+		return ""
+	return dir.path_join(file_name)
 
 
-## Fills `out` with {alias_key: Array[String] of options}, returns any problems as message strings.
+## An options entry: the templates are substituted at completion time, so `slots` is the widest
+## placeholder count among them.
+static func options_entry(options:Array[String]) -> Dictionary:
+	var slots = 0
+	for text in options:
+		slots = maxi(slots, placeholder_count(text))
+	return {&"options": options, &"build": null, &"slots": slots, &"required": 0}
+
+## A builder entry: the signature IS the contract, so the parameter count is the slot count and the
+## parameters without defaults are the ones we must not leave unfilled.
+static func builder_entry(build:Callable, slots:int, required:int) -> Dictionary:
+	return {&"options": [] as Array[String], &"build": build, &"slots": slots, &"required": required}
+
+
+## Fills `out` with {alias_key: entry}, returns any problems as message strings.
 ## Static so the parse/display/indent rules can be tested without a live singleton.
 static func parse_aliases(yaml_text:String, out:Dictionary) -> Array:
 	var errors = []
@@ -193,9 +299,66 @@ static func parse_aliases(yaml_text:String, out:Dictionary) -> Array:
 			if text != "":
 				texts.append(text)
 		if not texts.is_empty():
-			out[str(key)] = texts
+			out[str(key)] = options_entry(texts)
 
 	return errors
+
+
+## Members are the aliases: the member NAME is the key and its kind decides the shape. Constants that
+## are neither strings nor arrays are data or preloads, so skipping them by type is what keeps
+## helper tables out of the popup without any opt-out marker.
+static func collect_script_aliases(script:Script, out:Dictionary) -> Array:
+	var errors = []
+
+	var constants = script.get_script_constant_map()
+	for name:String in constants:
+		if name.begins_with("__"):
+			continue
+		var value = constants[name]
+		var texts:Array[String] = []
+		if value is String:
+			texts.append(value)
+		elif value is Array:
+			for option in value:
+				if option is String and option != "":
+					texts.append(option)
+		else:
+			continue # data table, preload, number - not an alias
+		if texts.is_empty():
+			continue
+		if out.has(name):
+			errors.append("'%s' is defined in both aliases.yml and aliases.gd; the script wins." % name)
+		out[name] = options_entry(texts)
+
+	for method:Dictionary in script.get_script_method_list():
+		var name:String = method.get("name", "")
+		if name.begins_with("__") or not UNode.has_static_method_compat(name, script):
+			continue
+		var args:Array = method.get("args", [])
+		var defaults:Array = method.get("default_args", [])
+		if out.has(name):
+			errors.append("'%s' is defined in both aliases.yml and aliases.gd; the script wins." % name)
+		out[name] = builder_entry(Callable(script, name), args.size(), args.size() - defaults.size())
+
+	return errors
+
+
+## Maps typed arguments onto a builder's parameters. The trailing empty element that a closing
+## separator leaves behind has to go first - passing "" would override the parameter's default
+## instead of letting it apply. Required parameters are padded so a call can never fail on a
+## missing argument, and extras are dropped so it can never fail on too many.
+static func build_args(args:PackedStringArray, required:int, slots:int) -> Array:
+	var out := []
+	for arg in args:
+		out.append(arg)
+	if not out.is_empty() and out[-1] == "":
+		out.remove_at(out.size() - 1)
+	while out.size() < required:
+		out.append(PLACEHOLDER)
+	out.resize(mini(out.size(), slots))
+	for i in out.size():
+		out[i] = resolve_arg(out[i])
+	return out
 
 ## The most specific key the expression starts with. Overlapping keys are normal once a key holds
 ## variants (for / fori / forib), and the longest is always the one meant - picking the first match
@@ -249,6 +412,13 @@ static func filled_arg_count(args:PackedStringArray) -> int:
 			count += 1
 	return count
 
+## The argument shown in the prefix. An entry that takes no arguments has nothing to name, or a zero
+## parameter builder like `_icon` would read "(/icon placeholder)" against a row it never fills.
+static func display_arg_for(typed:String, slots:int) -> String:
+	if slots <= 0:
+		return ""
+	return typed if typed != "" else PLACEHOLDER
+
 static func placeholder_count(text:String) -> int:
 	return text.count(PLACEHOLDER_TOKEN)
 
@@ -297,3 +467,4 @@ static func get_line_indent(line_text:String) -> String:
 
 class EditorSet:
 	const ENABLE = &"plugin/code_completion/alias/enable"
+	const DIRECTORY = &"plugin/code_completion/alias/directory"
