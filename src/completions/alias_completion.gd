@@ -11,9 +11,7 @@ const BLANK_ARG = "_" # a lone underscore asks for an empty substitution
 const ARG_SEPARATOR = "/" # the parser counts '/' as an identifier char, so it survives to us intact
 const HELPER_PREFIX = "_" # never an alias
 
-# CodeEdit's own delimiter for the highlighted run of a code hint; it draws the hint with these
-# stripped. Written as an escape, not char(0xFFFF): a static var's initialiser doesn't run for this
-# script in the editor, so the marker came back empty there while passing headless.
+# delimiter for the highlighted run of a code hint; draws the hint with these stripped
 const HINT_MARKER = "\uFFFF"
 
 var _enable:bool = true
@@ -55,7 +53,7 @@ func _singleton_ready() -> void:
 	ScriptEditorRef.subscribe(ScriptEditorRef.Event.TEXT_CHANGED, _on_text_changed)
 
 func _on_editor_script_changed(_script) -> void:
-	_code_hint_line = -1 # a different script's CodeEdit never carried our hint
+	_code_hint_line = -1
 	_reload_if_changed()
 
 func _clear_code_hint(script_editor:CodeEdit) -> void:
@@ -65,7 +63,7 @@ func _clear_code_hint(script_editor:CodeEdit) -> void:
 	script_editor.set_code_hint("")
 	_code_hint_line = -1
 
-## only applies to funcs
+# only applies to funcs
 func _set_code_hint(script_editor:CodeEdit, key:String, entry:Dictionary, typed:String) -> void:
 	if entry.arg_names.is_empty():
 		return
@@ -75,11 +73,10 @@ func _set_code_hint(script_editor:CodeEdit, key:String, entry:Dictionary, typed:
 	_code_hint_line = script_editor.get_caret_line()
 
 func _on_code_completion_requested(script_editor:CodeEdit) -> bool:
-	# above every early return: a hint set on the last request has to go the moment the expression
-	# stops being an alias, and most of the ways that happens leave here without reaching the body
 	_clear_code_hint(script_editor)
 	if not _enable or _aliases.is_empty():
 		return false
+	
 	var caret_context = get_caret_context()
 	if caret_context.token_state != TokenState.NONE:
 		return false
@@ -87,17 +84,13 @@ func _on_code_completion_requested(script_editor:CodeEdit) -> bool:
 		return false
 	
 	var expression = caret_context.expression_before_caret
-	if expression == "":
-		return false
-	# the separator is the only way in - without it the provider is inert, which keeps ordinary words
-	# like "for" or "export" from consuming the request at priority 2
+	# must start with "/"
 	if not expression.begins_with(ARG_SEPARATOR):
 		return false
+	
 	var lookup = expression.substr(ARG_SEPARATOR.length())
-
 	var key = longest_key(_aliases, lookup)
-	if key == "":
-		# nothing to invoke, so offer the keys still reachable from what has been typed
+	if key == "": # adds all aliases as options if key not found
 		return _add_menu_options(script_editor, lookup)
 
 	var indent = get_line_indent(caret_context.current_line_text)
@@ -106,38 +99,36 @@ func _on_code_completion_requested(script_editor:CodeEdit) -> bool:
 	var args = split_args(typed)
 	var matched = false
 	
-	# what the user actually typed, which is what Godot filters the display against and what an
-	# insert has to reproduce - the stored key carries no separator, the buffer does
+	# display is what the popup filters
 	var display_key = ARG_SEPARATOR + key
-	# only the arguments the alias CONSUMES join the prefix; anything past them stays out so it has
-	# to match a row's body, which is what keeps "/iconact" narrowing a zero argument builder
+	# /my_alias/substr/[som] <- uncompleted arg is split
 	var prefix = display_key + split_consumed(typed, entry.slots)[0]
 	
-	# a builder's parameter count; a const has none
-	var max_slots:int = entry.slots
 	
+	var max_slots:int = entry.slots # a builder's parameter count; a const has none
 	_set_code_hint(script_editor, key, entry, typed)
-
-	# candidates belong to the KEY, not to an option - the argument being typed is the same for
-	# every one of them, so collecting per option would just duplicate the rows
+	
+	# add member suggestions from script/local vars
 	if max_slots > 0:
 		var open_parts = split_open_arg(typed)
 		if not open_parts.is_empty():
 			var closed = display_key + open_parts[0]
-			# names never replace the finished completion any more - it is always offered too, so
-			# there is always something to accept no matter how many arguments are filled
 			if open_parts[1] != "":
 				matched = _add_name_options(script_editor, caret_context, closed, open_parts[1])
 			elif typed.contains(ARG_SEPARATOR) and filled_arg_count(args) < max_slots:
 				matched = _add_name_options(script_editor, caret_context, closed, "")
 	
 	if entry.build is Callable:
-		# an empty result just adds no rows - returning here would orphan any name options already
-		# added above, leaving them in the popup with the request unconsumed
-		for row in _call_builder(key, entry, args):
+		# an empty result just adds no rows - returning would orphan any name options already added
+		var builder_rows = _call_builder(key, entry, args)
+		# if the result contains a completion slice, ditch the name completions, assume user knows best
+		if not builder_rows.is_empty() and builder_rows[0].begins_with("/%s/" % key):
+			script_editor.update_code_completion_options(false)
+		
+		for row in builder_rows:
 			var cc_dict:Dictionary
 			if row is Dictionary:
-				# the builder owns the body; the prefix stays ours, since it carries the typed run
+				# builder's texts get wrap and indent treatment, no need to worry on impl side
 				cc_dict = row
 				cc_dict[&"display_text"] = make_display(prefix, cc_dict[&"display_text"])
 				cc_dict[&"insert_text"] = apply_indent(cc_dict[&"insert_text"], indent)
@@ -167,17 +158,16 @@ func _on_code_completion_requested(script_editor:CodeEdit) -> bool:
 	return true
 
 
-## The keys still reachable from what has been typed, one row each. Deliberately does NOT expand the
-## aliases: that would mean calling every builder, and icon/iconed produce ~1000 rows apiece, so a
-## bare separator would list thousands. Returns whether anything was added.
+
+## The keys still reachable from what has been typed, one row each.
+## Returns whether anything was added.
 func _add_menu_options(script_editor:CodeEdit, prefix:String) -> bool:
-	
 	var keys = keys_starting_with(_aliases, prefix)
 	for key:String in keys:
 		var entry:Dictionary = _aliases[key]
 		var single = entry.options.size() == 1 and entry.slots == 0
 		# the hint goes AFTER the key so a partly typed key still matches the display contiguously
-		var display = " -> " + entry.options[0] if single \
+		var display = "= " + entry.options[0] if single \
 				else make_arg_hint(entry.arg_names, entry.required)
 		var insert:String = entry.options[0] if single else make_menu_insert(key)
 		var cc_dict = get_code_complete_dict(CodeEdit.KIND_PLAIN_TEXT,
@@ -191,10 +181,10 @@ func _add_menu_options(script_editor:CodeEdit, prefix:String) -> bool:
 	return true
 
 
-## A user script can be edited into any state, so a builder that returns nothing usable is reported
+## builder that returns nothing usable is reported
 ## and skipped rather than left to put junk in the popup.
 func _call_builder(key:String, entry:Dictionary, args:PackedStringArray) -> Array:
-	# build_args sizes the call for any arity - it pads to `required` and truncates to `slots`, and
+	# build_args sizes the call for any arg count; pads to `required` and truncates to `slots`, and
 	# yields [] for a zero parameter builder, where callv([]) is exactly call()
 	var result = entry.build.callv(build_args(args, entry.required, entry.slots))
 	if result == null:
@@ -206,11 +196,7 @@ func _call_builder(key:String, entry:Dictionary, args:PackedStringArray) -> Arra
 	return builder_options(result)
 
 
-## A builder's return as rows: one for a string, one per element for an array. An element may be a
-## dict in get_code_complete_dict_static's shape, which is how a long insert carries a short display
-## - Godot scores the typed run against display_text, and boilerplate in front of the distinguishing
-## part wrecks it. A trailing break would drop the caret onto a blank line, and empty rows are
-## dropped, both the way parse_aliases does it.
+## builder's return is converted from String, Array or dict, to proper array form
 static func builder_options(result) -> Array:
 	var out := []
 	if result is String or result is Dictionary:
@@ -228,9 +214,7 @@ static func builder_options(result) -> Array:
 			out.append(text)
 	return out
 
-## Fills a builder's row dict out to get_code_complete_dict_static's shape. add_completion_option
-## reads all seven keys by dot access, so every one has to be present or a partial dict fails the
-## call. Returns {} when there is nothing to show, so the caller can drop it.
+## fills a builder's row dict out to get_code_complete_dict_static's shape. 
 static func normalize_row(row:Dictionary) -> Dictionary:
 	var insert = str(row.get(&"insert_text", "")).rstrip("\n")
 	var display = str(row.get(&"display_text", insert))
@@ -249,8 +233,7 @@ static func normalize_row(row:Dictionary) -> Dictionary:
 	return out
 
 
-## Offers the names in scope for the argument being typed. Returns whether anything matched - a miss
-## falls back to the ordinary snippet row rather than consuming the request for an empty popup.
+## Offers the names in scope for the argument being typed. Returns whether anything matched
 func _add_name_options(script_editor:CodeEdit, caret_context:CaretContext, closed:String, open_arg:String) -> bool:
 	var added = false
 	var names = _collect_names(caret_context)
@@ -477,12 +460,15 @@ static func split_consumed(typed:String, slots:int) -> PackedStringArray:
 	while taken < slots and rest != "":
 		var next = rest.find(ARG_SEPARATOR)
 		if next == -1:
-			consumed += rest
-			rest = ""
+			# believe this was wrong, just break, rest is preserved
+			#consumed += rest
+			#rest = ""
+			break
 		else:
 			consumed += rest.substr(0, next + 1)
 			rest = rest.substr(next + 1)
 		taken += 1
+	
 	return PackedStringArray([consumed, rest])
 
 ## A parameter as both hints write it - bracketed when it has a default. Now that nothing counts
@@ -498,7 +484,7 @@ static func make_arg_hint(arg_names:PackedStringArray, required:int) -> String:
 		return ""
 	for i in arg_names.size():
 		out += ARG_SEPARATOR + _arg_label(arg_names, i, required)
-	return " (%s)" % out.trim_prefix("/")
+	return "(%s)" % out.trim_prefix("/")
 
 ## Which argument is being typed. split_args already normalises the optional leading separator, so
 ## the open argument is simply the last element - "" and "/" are both argument 0.

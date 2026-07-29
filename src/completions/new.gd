@@ -22,6 +22,8 @@ func _on_code_completion_requested(script_editor:CodeEdit) -> bool:
 	var caret_context = get_caret_context()
 	if caret_context.token_state != TokenState.NONE:
 		return false
+	if caret_context.expression_state == ExpressionState.MEMBER_ACCESS:
+		return false
 	
 	var word = caret_context.word_before_caret
 	if not word.ends_with("new"):
