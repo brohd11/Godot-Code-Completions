@@ -187,7 +187,6 @@ static func setget(name, type:= "int") -> String:
 			% [name, type, default_for(type), name, name]
 
 
-const SIG_COMP_TEMPLATE = "/sig/%s/%s/"
 const SIG_FUNC_TEMPLATE = "func _on_%s(%s):\n\tpass"
 
 static func sig(type_or_var:String, signal_name:String):
@@ -215,13 +214,13 @@ static func sig(type_or_var:String, signal_name:String):
 				var md = class_obj.members[m]
 				if md.get(GDScriptParser.Keys.MEMBER_TYPE) != GDScriptParser.Keys.MEMBER_TYPE_SIGNAL:
 					continue
-				completions.append(SIG_COMP_TEMPLATE % [type_or_var, m])
+				completions.append(_signal_completion(type_or_var, m))
 			
 			for m in class_obj.get_inherited_members():
 				var md = class_obj.members[m]
 				if md.get(GDScriptParser.Keys.MEMBER_TYPE) != GDScriptParser.Keys.MEMBER_TYPE_SIGNAL:
 					continue
-				completions.append(SIG_COMP_TEMPLATE % [type_or_var, m])
+				completions.append(_signal_completion(type_or_var, m))
 			
 			if completions.is_empty():
 				completions.append("/sig/ no signals found")
@@ -245,7 +244,7 @@ static func sig(type_or_var:String, signal_name:String):
 		if not ClassDB.class_has_signal(type, signal_name):
 			var signals = ClassDB.class_get_signal_list(type)
 			for s in signals:
-				completions.append(SIG_COMP_TEMPLATE % [type_or_var, s.name])
+				completions.append(_signal_completion(type_or_var, s.name))
 			
 			if completions.is_empty():
 				completions.append("/sig/ no signals found")
@@ -272,6 +271,15 @@ static func sig(type_or_var:String, signal_name:String):
 		arg_str = arg_str.strip_edges().trim_suffix(",")
 		return SIG_FUNC_TEMPLATE % [signal_name, arg_str]
 
+static func _signal_completion(type_or_var:String, s_name:String):
+	return EditorCodeCompletion.get_code_complete_dict_static(
+		CodeEdit.KIND_SIGNAL,
+		s_name,
+		"/sig/%s/%s/" % [type_or_var, s_name],
+		"signal",
+		EditorCodeCompletion.Helpers.Colors.DEFAULT_COMPLETION,
+		null, 0 # location: 0
+	)
 
 
 static func drop(name:String):
