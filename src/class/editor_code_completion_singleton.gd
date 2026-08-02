@@ -27,7 +27,6 @@ const ArgLocation = preload("res://addons/code_completions/src/completions/arg_l
 const DictKey = preload("res://addons/code_completions/src/completions/dict_key.gd")
 const ThemeCompletion = preload("res://addons/code_completions/src/completions/themes.gd")
 const EditorThemeCompletion = preload("res://addons/code_completions/src/completions/editor_theme.gd")
-const NewCompletion = preload("res://addons/code_completions/src/completions/new.gd")
 const MemberString = preload("res://addons/code_completions/src/completions/member_string.gd")
 const AliasCompletion = preload("res://addons/code_completions/src/completions/alias_completion.gd")
 
@@ -41,7 +40,6 @@ var arg_location:ArgLocation
 var dict_key:DictKey
 var theme_completion:ThemeCompletion
 var editor_theme_completion:EditorThemeCompletion
-var new_completion:NewCompletion
 var member_string:MemberString
 var alias_completion:AliasCompletion
 
@@ -112,6 +110,8 @@ var setting_helper:SettingHelperEditor
 var peristent_cache:Dictionary = {}
 var script_cache:Dictionary = {}
 
+var global_classes:Dictionary = {}
+
 
 func _init(_node) -> void:
 	_singleton_init()
@@ -121,6 +121,7 @@ func _all_unregistered_callback():
 
 func _ready() -> void:
 	await get_tree().create_timer(1).timeout
+	global_classes = UClassDetail.get_all_global_class_paths()
 	_connect_editor()
 	
 	call_on_ready(_init_plugins)
@@ -150,7 +151,6 @@ func _init_plugins() -> void:
 	dict_key = DictKey.new()
 	theme_completion = ThemeCompletion.new()
 	editor_theme_completion = EditorThemeCompletion.new()
-	new_completion = NewCompletion.new()
 	member_string = MemberString.new()
 	alias_completion = AliasCompletion.new()
 
@@ -179,7 +179,6 @@ func _get_plugins() -> Array[EditorCodeCompletion]:
 		dict_key,
 		theme_completion,
 		editor_theme_completion,
-		new_completion,
 		member_string,
 		alias_completion,
 		]
@@ -192,6 +191,7 @@ func register_tag(prefix:String, tag:String, location:TagLocation=TagLocation.AN
 		peristent_cache[PersistentCache.TAGS][prefix][tag] = location
 	else:
 		print("Tag already registered: %s %s" % [prefix, tag])
+	
 
 func unregister_tag(prefix:String, tag:String):
 	if not peristent_cache[PersistentCache.TAGS].has(prefix):
@@ -213,7 +213,6 @@ func _clear_cache():
 	
 	peristent_cache[PersistentCache.TAGS] = {}
 	script_cache[ScriptCache.STRING_MAPS] = {}
-
 
 
 func code_completion_added():
@@ -254,6 +253,7 @@ func _on_editor_script_changed(script):
 	_prep_script(script)
 
 func _on_file_system_changed():
+	global_classes = UClassDetail.get_all_global_class_paths()
 	var current_script = get_current_script()
 	_prep_script(current_script)
 

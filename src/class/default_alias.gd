@@ -1,6 +1,7 @@
 
 const EditorCodeCompletionSingleton = EditorCodeCompletion.EditorCodeCompletionSingleton
 const UtilsRemote = EditorCodeCompletionSingleton.UtilsRemote
+const UClassDetail = UtilsRemote.UClassDetail
 const EditorGDScriptParser = UtilsRemote.EditorGDScriptParser
 const GDScriptParser = EditorGDScriptParser.GDScriptParser
 
@@ -136,7 +137,7 @@ static func _get_forloop_for_type(type:String, collection:String, iterator:=""):
 			return [
 				"for %s:Variant in %s.keys():%s" % [_get_iterator(iterator, "Variant"), collection, tail],
 				"for %s:Variant in %s.values():%s" % [_get_iterator(iterator, "Variant"), collection, tail]
-			]
+				]
 		else:
 			return [default + tail]
 	
@@ -150,7 +151,7 @@ static func _get_forloop_for_type(type:String, collection:String, iterator:=""):
 		return [
 			"for %s:%s in %s.keys():%s" % [_get_iterator(iterator, key), key, collection, tail],
 			"for %s:%s in %s.values():%s" % [_get_iterator(iterator, val), val, collection, tail]
-		]
+			]
 
 static func _get_iterator(iterator:String, type:String):
 	if iterator == "":
@@ -181,11 +182,8 @@ static func edicon():
 #endregion
 
 
-static func setget(name, type:= "int") -> String:
-	type = type_check(type)
-	return "var %s:%s = %s:\n\tset(value):\n\t\t%s = value\n\tget():\n\t\treturn %s" \
-			% [name, type, default_for(type), name, name]
 
+#region Signal Signature
 
 const SIG_FUNC_TEMPLATE = "func _on_%s(%s):\n\tpass"
 
@@ -280,6 +278,64 @@ static func _signal_completion(type_or_var:String, s_name:String):
 		EditorCodeCompletion.Helpers.Colors.DEFAULT_COMPLETION,
 		null, 0 # location: 0
 	)
+#endregion
+
+#region NewClass
+
+static func new_class():
+	var caret_context = get_caret_context()
+	var options = []
+	var parser = GDScriptParser.Utils.ParserRef.get_parser(caret_context)
+	
+	#^ preloads / inner classes of the class at the caret line
+	var class_obj = caret_context.get_current_class_object()
+	if is_instance_valid(class_obj):
+		var gdscript_constants = class_obj.get_gdscript_constants(true)
+		for c in gdscript_constants.keys():
+			var type = gdscript_constants[c]
+			if type.ends_with(GDScriptParser.Keys.ENUM_PATH_SUFFIX):
+				continue
+			var disp = c + ".new(" if _script_has_init_args(parser, type) else c + ".new()"
+			options.append(disp)
+	
+	#^ global user classes
+	var global_classes = UClassDetail.get_all_global_class_paths()
+	for name in global_classes.keys():
+		if options.has(name):
+			continue
+		var disp = name + ".new(" if _script_has_init_args(parser, global_classes[name]) else name + ".new()"
+		options.append(disp)
+	#^ engine classes
+	for name in ClassDB.get_class_list():
+		if global_classes.has(name): #^ shadowed by a user class
+			continue
+		if not ClassDB.can_instantiate(name):
+			continue
+		options.append(name + ".new()")
+	
+	return options
+	
+
+
+static func _script_has_init_args(parser, type_path:String) -> bool:
+	var parser_data = parser.get_parser_and_class_obj_for_script(type_path)
+	if not parser_data or not is_instance_valid(parser_data.class_obj):
+		return false
+	var init_func = parser_data.class_obj.get_function("_init")
+	if not is_instance_valid(init_func):
+		return false
+	return not init_func.get_arguments().is_empty()
+
+
+#endregion
+
+#region Misc
+
+
+static func setget(name, type:= "int") -> String:
+	type = type_check(type)
+	return "var %s:%s = %s:\n\tset(value):\n\t\t%s = value\n\tget():\n\t\treturn %s" \
+			% [name, type, default_for(type), name, name]
 
 
 static func drop(name:String):
@@ -292,3 +348,4 @@ func %s_drop_data(at_position: Vector2, data: Variant) -> void:
 func %s_get_drag_data(at_position: Vector2) -> Variant:
 	var data = {}
 	return data""" % [name, name, name]
+#endregion

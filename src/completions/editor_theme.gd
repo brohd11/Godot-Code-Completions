@@ -3,14 +3,12 @@ extends EditorCodeCompletion
 const UTexture = UtilsRemote.UTexture
 
 var _enable:bool = true
-var _edthm_shortcut:bool = false
 var _type_variation_enable:bool = true
 
 var _color_icon_cache:= {}
 
 func register_editor_settings(settings_helper:SettingHelperEditor):
 	settings_helper.subscribe_property(self, &"_enable", EditorSet.ENABLE, true)
-	settings_helper.subscribe_property(self, &"_edthm_shortcut", EditorSet.EDITOR_THEME_SHORTCUT, false)
 	settings_helper.subscribe_property(self, &"_type_variation_enable", EditorSet.TYPE_VARIATION_ENABLE, true)
 
 
@@ -22,10 +20,6 @@ func _on_code_completion_requested(script_editor:CodeEdit) -> bool:
 		return false
 	
 	var in_string = caret_context.token_state == TokenState.STRING or caret_context.token_state == TokenState.STRING_NAME
-	
-	if _edthm_shortcut and caret_context.expression_before_caret.begins_with("edthm"):
-		if caret_context.token_state == TokenState.NONE and caret_context.expression_state != ExpressionState.MEMBER_ACCESS:
-			_editor_theme_quick_complete(script_editor)
 	
 	if _type_variation_enable and caret_context.expression_state == ExpressionState.ASSIGNMENT:
 		if _add_type_variations(script_editor, caret_context, caret_context.token_state):
@@ -53,26 +47,6 @@ func _on_code_completion_requested(script_editor:CodeEdit) -> bool:
 		"get_icon": _add_icons(script_editor, caret_context.token_state, append_editor_thm)
 		"get_color": _add_colors(script_editor, caret_context.token_state, append_editor_thm)
 	return true
-
-func _editor_theme_quick_complete(script_editor:CodeEdit):
-	var completions = [
-		"var edthm = EditorInterface.get_editor_theme()",
-		"EditorInterface.get_editor_theme().get_color(",
-		"EditorInterface.get_editor_theme().get_icon(",
-	]
-	
-	for c in completions:
-		var insert = c
-		add_completion_option(script_editor,
-			get_code_complete_dict(
-				CodeEdit.KIND_FUNCTION,
-				Helpers.complete_function_display(c),
-				insert,
-				"Theme",
-				)
-			)
-	
-	update_completion_options(true)
 
 
 func _add_icons(script_editor:CodeEdit, in_string:=TokenState.NONE, append_thm_type:bool=false):
@@ -157,7 +131,6 @@ func _add_type_variations(script_editor:CodeEdit, caret_context:CaretContext, in
 	update_completion_options(true)
 	return true
 
-
 func _get_display_and_insert(insert, in_string:=TokenState.NONE, theme_type:String=""):
 	var display = insert
 	var new_insert = insert
@@ -185,5 +158,4 @@ func _get_string_color(string:TokenState):
 
 class EditorSet:
 	const ENABLE = &"plugin/code_completion/editor_theme/enable"
-	const EDITOR_THEME_SHORTCUT = &"plugin/code_completion/editor_theme/shortcut"
 	const TYPE_VARIATION_ENABLE = &"plugin/code_completion/editor_theme/theme_type_variation_enable"

@@ -10,9 +10,8 @@ func _get_completion_settings() -> Dictionary:
 		"priority": 10,
 	}
 
-func _on_editor_script_changed(script):
+func _on_editor_script_changed(_script):
 	pass
-
 
 
 func _on_code_completion_requested(script_editor:CodeEdit) -> bool:
@@ -23,20 +22,15 @@ func _on_code_completion_requested(script_editor:CodeEdit) -> bool:
 		return false
 	if caret_context.is_in_dictionary():
 		return false
-	var current_path = get_gdscript_parser().get_script_path()
 	
+	var hide_global_classes:bool = false
+	var visible_global_classes:Array = []
+	var import_ins = Import.get_instance()
 	# import data grabbed from import_code_completion
-	var import_data = Import.get_import_data(current_path) as Import.ImportData
-	if import_data == null:
-		import_data = Import.ImportData.new()
-	var hide_global_classes = false
-	var visible_global_classes = {}
-	var global_classes = {}
-	if is_instance_valid(import_data):
-		hide_global_classes = import_data.hide_global_classes
-		visible_global_classes = import_data.visible_global_classes
-		global_classes = import_data.global_classes
-		
+	import_ins.ensure_import_data()
+	if is_instance_valid(import_ins.current_import_data):
+		hide_global_classes = import_ins.current_import_data.hide_global_classes
+		visible_global_classes = import_ins.current_import_data.visible_global_classes
 	
 	var class_obj:GDScriptParser.ParserClass
 	var type_hint_text = caret_context.get_type_hint_text()
@@ -66,7 +60,7 @@ func _on_code_completion_requested(script_editor:CodeEdit) -> bool:
 		for o in existing:
 			var display = o.display_text
 			if hide_global_classes:
-				if global_classes.has(display) and not visible_global_classes.has(display):
+				if singleton.global_classes.has(display) and not visible_global_classes.has(display):
 					continue
 			if not options.has(display):
 				add_completion_option(script_editor, o)
@@ -77,7 +71,7 @@ func _on_code_completion_requested(script_editor:CodeEdit) -> bool:
 
 func _get_class_obj_completion_options(class_obj:GDScriptParser.ParserClass):
 	var options = {}
-	var class_script = class_obj.script_resource
+	#var class_script = class_obj.script_resource
 	#if not is_instance_valid(class_script):
 		#return options
 	
@@ -102,7 +96,6 @@ func _add_dict_entry(options_dict:Dictionary, name:String, icon_name:String):
 	var type = CodeEdit.CodeCompletionKind.KIND_CLASS
 	var location = 0
 	if icon_name == "enum":
-		#icon_name = "enum"
 		type = CodeEdit.CodeCompletionKind.KIND_ENUM
 		location = 1024
 	options_dict[name] = get_code_complete_dict(type, name, name, icon_name, null, location)

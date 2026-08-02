@@ -546,6 +546,7 @@ static func make_display(prefix:String, insert:String) -> String:
 		first = first.substr(0, DISPLAY_MAX).rstrip(" \t") + ELLIPSIS
 	elif insert.contains("\n"):
 		first += " " + ELLIPSIS
+	first = Helpers.complete_function_display(first)
 	return "(%s) %s" % [prefix, first]
 
 

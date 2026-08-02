@@ -21,7 +21,6 @@ func _on_code_completion_requested(script_editor:CodeEdit) -> bool:
 	if not caret_context.is_in_function_call():
 		return false
 	
-	
 	var func_data = caret_context.get_function_call_data()
 	if not func_data.is_valid:
 		return false
@@ -51,7 +50,7 @@ func _get_theme_category(func_name:String) -> String:
 
 ## The class name the theme item list is keyed by: the receiver's class for Control
 ## accessors, the literal `theme_type` second argument for Theme accessors.
-func _get_theme_type(func_data:CaretContext.FunctionCallData, caret_context:CaretContext) -> String:
+func _get_theme_type(func_data:CaretContext.FunctionCallData, _caret_context:CaretContext) -> String:
 	var func_name = func_data.get_function_name()
 	if not func_name.contains("_theme_"): # Theme family
 		if func_data.current_arguments.size() < 2:

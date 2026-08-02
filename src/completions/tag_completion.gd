@@ -15,7 +15,7 @@ func _on_code_completion_requested(script_editor:CodeEdit) -> bool:
 		return false
 	
 	var caret_col = caret_context.caret_column
-	var current_line_text = caret_context.current_line_text
+	var current_line_text = script_editor.get_line(caret_context.caret_line)
 	
 	var string_map = caret_context.get_string_map(current_line_text)
 	var tag_present = ""
@@ -31,15 +31,18 @@ func _on_code_completion_requested(script_editor:CodeEdit) -> bool:
 	var stripped = current_line_text.substr(tag_idx).strip_edges()
 	var parts = stripped.split(" ", false)
 	
+	# actually just char before cursor
 	var word_before_caret = caret_context.word_before_caret
-	# think this could be handled better?
+	if caret_col > 0:
+		word_before_caret = current_line_text[caret_col - 1]
+
 	if parts.size() > 1:
-		if parts.size() == 2 and word_before_caret == "":
+		if parts.size() == 2 and word_before_caret == " ":
 			return false
 		if parts.size() > 2:
 			return false
+	
 	var valid_tags = []
-
 	
 	var declared_tag_members = singleton.peristent_cache[singleton.PersistentCache.TAGS].get(tag_present, {})
 	for tag in declared_tag_members.keys():
