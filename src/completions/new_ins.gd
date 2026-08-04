@@ -18,6 +18,7 @@ func _on_code_completion_requested(script_editor:CodeEdit) -> bool:
 	type = type.trim_suffix(GDScriptParser.Keys.Delim.INS)
 	if type == "":
 		return false
+	
 	var existing = script_editor.get_code_completion_options()
 	if not type.is_absolute_path():
 		add_completion_option(script_editor, get_code_complete_dict_static(
@@ -28,7 +29,6 @@ func _on_code_completion_requested(script_editor:CodeEdit) -> bool:
 				0
 			))
 	else:
-		
 		var parser = get_gdscript_parser()
 		var has_args = Helpers.script_has_init_args(parser, type)
 		var access_opt = op_data.get_type_access_path(type)

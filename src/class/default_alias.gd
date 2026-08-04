@@ -67,7 +67,6 @@ static func forloop(iterator:String, collection:String):
 			iterator = "x"
 		var valid_loops = {}
 		var function = cc.get_current_func_object()
-		print(function)
 		if not is_instance_valid(function):
 			return ""
 		function.map_variables()
@@ -76,7 +75,7 @@ static func forloop(iterator:String, collection:String):
 			var v_type = function.get_local_var_type(v_name)
 			
 			var loops = _get_forloop_for_type(v_type, v, iterator)
-			print(v_name, ":", v_type, loops)
+			#print(v_name, ":", v_type, loops)
 			for l in loops:
 				valid_loops[l] = true
 		

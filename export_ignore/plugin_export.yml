@@ -20,7 +20,7 @@ options:
   overwrite: true
   include_min_version: true
   use_tag_in_cfg: true
-  remove_cfg_deps: true
+  exported_deps: []
   parser_settings:
     backport_target: 100.0
     parse_cs:

@@ -11,6 +11,7 @@ const BLANK_ARG = "_" # a lone underscore asks for an empty substitution
 const ARG_SEPARATOR = "/" # the parser counts '/' as an identifier char, so it survives to us intact
 const HELPER_PREFIX = "_" # never an alias
 
+const INVALID_ARGS = "/ invalid args"
 # delimiter for the highlighted run of a code hint; draws the hint with these stripped
 const HINT_MARKER = "\uFFFF"
 
@@ -164,8 +165,8 @@ func _on_code_completion_requested(script_editor:CodeEdit) -> bool:
 						args_for_option.append(args_for_option[0])
 					else:
 						args_for_option.append(PLACEHOLDER)
-			elif args_sz > slots:
-				text = text + "/ invalid args"
+			elif args_sz > slots and slots > 0: # allows none placeholder type to search via first arg
+				text = text + INVALID_ARGS
 				slots = 0
 			
 			var new_text = text
