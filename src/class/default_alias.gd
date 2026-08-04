@@ -2,6 +2,7 @@
 const EditorCodeCompletionSingleton = EditorCodeCompletion.EditorCodeCompletionSingleton
 const UtilsRemote = EditorCodeCompletionSingleton.UtilsRemote
 const UClassDetail = UtilsRemote.UClassDetail
+const EditorColors = UtilsRemote.EditorColors
 const EditorGDScriptParser = UtilsRemote.EditorGDScriptParser
 const GDScriptParser = EditorGDScriptParser.GDScriptParser
 
@@ -164,9 +165,13 @@ static func _get_iterator(iterator:String, type:String):
 
 static func icon():
 	var icons = EditorInterface.get_editor_theme().get_icon_list("EditorIcons")
+	var sn_color = EditorColors.get_syntax_color(EditorColors.SyntaxColor.STRING_NAME)
 	var constructed = []
 	for i in icons:
-		constructed.append('&"%s"' % i)
+		var full = '&"%s"' % i
+		constructed.append(EditorCodeCompletion.get_code_complete_dict_static(
+				CodeEdit.KIND_CONSTANT, full, full, i, sn_color))
+	
 	return constructed
 
 # insert must be short than the full call
@@ -295,15 +300,16 @@ static func new_class():
 			var type = gdscript_constants[c]
 			if type.ends_with(GDScriptParser.Keys.ENUM_PATH_SUFFIX):
 				continue
-			var disp = c + ".new(" if _script_has_init_args(parser, type) else c + ".new()"
+			var disp = c + ".new(" if EditorCodeCompletion.Helpers.script_has_init_args(parser, type) else c + ".new()"
 			options.append(disp)
+			
 	
 	#^ global user classes
 	var global_classes = UClassDetail.get_all_global_class_paths()
 	for name in global_classes.keys():
 		if options.has(name):
 			continue
-		var disp = name + ".new(" if _script_has_init_args(parser, global_classes[name]) else name + ".new()"
+		var disp = name + ".new(" if EditorCodeCompletion.Helpers.script_has_init_args(parser, global_classes[name]) else name + ".new()"
 		options.append(disp)
 	#^ engine classes
 	for name in ClassDB.get_class_list():
@@ -314,18 +320,6 @@ static func new_class():
 		options.append(name + ".new()")
 	
 	return options
-	
-
-
-static func _script_has_init_args(parser, type_path:String) -> bool:
-	var parser_data = parser.get_parser_and_class_obj_for_script(type_path)
-	if not parser_data or not is_instance_valid(parser_data.class_obj):
-		return false
-	var init_func = parser_data.class_obj.get_function("_init")
-	if not is_instance_valid(init_func):
-		return false
-	return not init_func.get_arguments().is_empty()
-
 
 #endregion
 

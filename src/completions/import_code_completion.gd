@@ -555,6 +555,8 @@ func _set_extended_names():
 	var inh_scripts = UClassDetail.script_get_inherited_script_paths(get_current_script())
 	for path in inh_scripts:
 		var script = load(path) as Script
+		if not is_instance_valid(script):
+			continue
 		if script.get_global_name() != "":
 			extended_class_names[script.get_global_name()] = true
 

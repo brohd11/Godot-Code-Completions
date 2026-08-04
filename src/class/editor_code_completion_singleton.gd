@@ -29,6 +29,7 @@ const ThemeCompletion = preload("res://addons/code_completions/src/completions/t
 const EditorThemeCompletion = preload("res://addons/code_completions/src/completions/editor_theme.gd")
 const MemberString = preload("res://addons/code_completions/src/completions/member_string.gd")
 const AliasCompletion = preload("res://addons/code_completions/src/completions/alias_completion.gd")
+const NewIns = preload("res://addons/code_completions/src/completions/new_ins.gd")
 
 var enum_completion:EnumCompletion
 var import_code_completion:ImportCodeCompletion
@@ -42,6 +43,7 @@ var theme_completion:ThemeCompletion
 var editor_theme_completion:EditorThemeCompletion
 var member_string:MemberString
 var alias_completion:AliasCompletion
+var new_ins:NewIns
 
 
 const TF = preload("uid://ft7o6vspsurv") #! resolve ALibRuntime.Utils.UProfile.TimeFunction #TODO erase
@@ -153,7 +155,8 @@ func _init_plugins() -> void:
 	editor_theme_completion = EditorThemeCompletion.new()
 	member_string = MemberString.new()
 	alias_completion = AliasCompletion.new()
-
+	new_ins = NewIns.new()
+	
 	setting_helper = SettingHelperEditor.new()
 	var plugins = _get_plugins()
 	for p in plugins:
@@ -181,6 +184,7 @@ func _get_plugins() -> Array[EditorCodeCompletion]:
 		editor_theme_completion,
 		member_string,
 		alias_completion,
+		new_ins,
 		]
 
 func register_tag(prefix:String, tag:String, location:TagLocation=TagLocation.ANY):
@@ -329,3 +333,15 @@ func _get_cached_data_in_section(section, key, data_cache:Dictionary):
 	var section_data = data_cache.get(section)
 	
 	return CacheHelper.get_cached_data(key, section_data)
+
+
+#region Debug
+
+static func print_settings():
+	var ins = get_instance()
+	for comp in ins.code_completions.keys():
+		print(comp.get_script().resource_path.get_file(), " -- ",ins.code_completions[comp])
+
+
+
+#endregion

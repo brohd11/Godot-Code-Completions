@@ -242,6 +242,16 @@ class Helpers:
 				return EditorColors.get_syntax_color(EditorColors.SyntaxColor.NODE_PATH)
 			return Colors.DEFAULT_COMPLETION
 	
+	static func script_has_init_args(parser:GDScriptParser, type_path:String) -> bool:
+		var parser_data = parser.get_parser_and_class_obj_for_script(type_path)
+		if not parser_data or not is_instance_valid(parser_data.class_obj):
+			return false
+		var init_func = parser_data.class_obj.get_function("_init")
+		if not is_instance_valid(init_func):
+			return false
+		return not init_func.get_arguments().is_empty()
+	
+	
 	## Pass the full class path before the caret.
 	static func class_completion(code_completion:EditorCodeCompletion, class_path:String, include_built_ins:=false, update:=true):
 		var script_editor = code_completion.get_code_edit()
