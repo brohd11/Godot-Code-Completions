@@ -468,6 +468,9 @@ func check_expression_for_meta(expression:String, line:int=-1):
 		var type_rich:Dictionary = editor_parser.resolve_expression_to_type_rich(working_path, line)
 		var origin = type_rich.origin
 		
+		if PRINT_DEBUG:
+			print("DictKey - Check Meta:", type_rich)
+		
 		var meta
 		if origin != "":
 			if origin == "Dictionary" and not type_rich.member_stack.is_empty():

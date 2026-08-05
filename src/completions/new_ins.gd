@@ -8,6 +8,8 @@ func _get_completion_settings() -> Dictionary:
 func _on_code_completion_requested(script_editor:CodeEdit) -> bool:
 	
 	var caret_context = get_caret_context()
+	if caret_context.expression_state != ExpressionState.ASSIGNMENT:
+		return false
 	var op_data = caret_context.get_operation_data()
 	if not op_data.is_valid or op_data.operator != "=":
 		return false
@@ -45,7 +47,7 @@ func _on_code_completion_requested(script_editor:CodeEdit) -> bool:
 				0
 			))
 	
-	var add_existing = false
+	var add_existing = true
 	if add_existing:
 		for o in existing:
 			add_completion_option(script_editor, o)
