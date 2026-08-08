@@ -587,7 +587,9 @@ class ExampleAlias:
 			var def_path = "res://addons/code_completions/src/class/default_alias.gd" #! ensure_path
 			DirAccess.make_dir_recursive_absolute(dir)
 			var f = FileAccess.open(path, FileAccess.WRITE)
-			f.store_string(TEXT % def_path)
+			# texts split because placholder in comment header problematic
+			var to_store = TEXT + BUILTIN_TEXT % def_path
+			f.store_string(to_store)
 			f.close()
 	
 	
@@ -606,8 +608,10 @@ class ExampleAlias:
 
 const example_arr := ["option1", "option2"]
 const ready := "func _ready() -> void:\n\tpass"
+"""
 
-
+	const BUILTIN_TEXT:String = \
+""" 
 #region Builtins
 const DefaultAliases = preload("%s")
 

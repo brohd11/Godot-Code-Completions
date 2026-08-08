@@ -68,6 +68,11 @@ func register_editor_settings(settings_helper:SettingHelperEditor):
 	settings_helper.subscribe_property(self, &"hide_global_classes_setting", Settings.HIDE_GLOBAL_SETTING, false)
 	settings_helper.subscribe_property(self, &"hide_global_exemptions", Settings.HIDE_GLOBAL_EXEMP_SETTING, [])
 	
+	_on_project_settings_changed()
+	ProjectSettings.add_property_info(Settings.get_str_arr_prop_info(Settings.DEFAULT_IMPORTS))
+	ProjectSettings.settings_changed.connect(_on_project_settings_changed)
+	
+	# add prop infos once added
 	var editor_settings = EditorInterface.get_editor_settings()
 	while not editor_settings.has_setting(Settings.HIDE_GLOBAL_EXEMP_SETTING):
 		await EditorInterface.get_base_control().get_tree().process_frame
@@ -75,9 +80,6 @@ func register_editor_settings(settings_helper:SettingHelperEditor):
 	var hide_global_exemp_pi = Settings.get_str_arr_prop_info(Settings.HIDE_GLOBAL_EXEMP_SETTING)
 	editor_settings.add_property_info(hide_global_exemp_pi)
 	
-	_on_project_settings_changed()
-	ProjectSettings.add_property_info(Settings.get_str_arr_prop_info(Settings.DEFAULT_IMPORTS))
-	ProjectSettings.settings_changed.connect(_on_project_settings_changed)
 
 func _on_project_settings_changed():
 	if not ProjectSettings.has_setting(Settings.DEFAULT_IMPORTS):

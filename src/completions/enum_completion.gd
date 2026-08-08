@@ -75,6 +75,7 @@ func _function_call(caret_context:CaretContext):
 	#return _process_identifier(current_arg.type)
 	
 	var current_arg_type = func_data.get_current_arg_type()
+	print_deb(T.ENUM, [func_data.get_function_origin()])
 	print_deb(T.ENUM, ["FUNC", current_arg_type])
 	return _process_identifier(current_arg_type)
 
