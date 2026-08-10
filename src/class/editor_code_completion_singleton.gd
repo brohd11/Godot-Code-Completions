@@ -1,5 +1,4 @@
-extends SingletonRefCount
-const SingletonRefCount = Singletons.RefCount
+extends Singletons.RefCount
 #! remote
 #! import_p UString,UClassDetail,
 
