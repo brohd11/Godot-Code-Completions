@@ -29,6 +29,7 @@ const EditorThemeCompletion = preload("res://addons/code_completions/src/complet
 const MemberString = preload("res://addons/code_completions/src/completions/member_string.gd")
 const AliasCompletion = preload("res://addons/code_completions/src/completions/alias_completion.gd")
 const NewIns = preload("res://addons/code_completions/src/completions/new_ins.gd")
+const ArrStruct = preload("res://addons/code_completions/src/completions/arr_struct.gd")
 
 var enum_completion:EnumCompletion
 var import_code_completion:ImportCodeCompletion
@@ -43,6 +44,7 @@ var editor_theme_completion:EditorThemeCompletion
 var member_string:MemberString
 var alias_completion:AliasCompletion
 var new_ins:NewIns
+var arr_struct:ArrStruct
 
 
 const TF = preload("uid://ft7o6vspsurv") #! resolve ALibRuntime.Utils.UProfile.TimeFunction #TODO erase
@@ -155,6 +157,7 @@ func _init_plugins() -> void:
 	member_string = MemberString.new()
 	alias_completion = AliasCompletion.new()
 	new_ins = NewIns.new()
+	arr_struct = ArrStruct.new()
 	
 	setting_helper = SettingHelperEditor.new()
 	var plugins = _get_plugins()
@@ -184,6 +187,7 @@ func _get_plugins() -> Array[EditorCodeCompletion]:
 		member_string,
 		alias_completion,
 		new_ins,
+		arr_struct,
 		]
 
 func register_tag(prefix:String, tag:String, location:TagLocation=TagLocation.ANY):
