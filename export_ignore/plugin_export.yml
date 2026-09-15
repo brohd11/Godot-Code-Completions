@@ -6,7 +6,8 @@ exports:
         - "res://addons/code_completions/export_ignore"
       file_extensions: []
       files: []
-    export_folder: "code-completions{{version=code_completions}}/code_completions"
+    export_name: "code-completions{{version=code_completions}}"
+    export_folder: "addons/code_completions"
     other_transfers: []
     parser_overide_settings:
       parse_cs: {}
