@@ -44,12 +44,9 @@ var editor_theme_completion:EditorThemeCompletion
 var member_string:MemberString
 var alias_completion:AliasCompletion
 var new_ins:NewIns
-<<<<<<< HEAD
-var arr_struct:ArrStruct
-=======
-var native_completion:EditorCodeCompletion
->>>>>>> bdd5b5d (add native completeion for gdscript-lsp)
 
+var arr_struct:ArrStruct
+var native_completion:EditorCodeCompletion
 
 const TF = preload("uid://ft7o6vspsurv") #! resolve ALibRuntime.Utils.UProfile.TimeFunction #TODO erase
 
@@ -169,7 +166,8 @@ func _init_plugins() -> void:
 	setting_helper = SettingHelperEditor.new()
 	var plugins = _get_plugins()
 	for p in plugins:
-		p.register_editor_settings(setting_helper)
+		if is_instance_valid(p):
+			p.register_editor_settings(setting_helper)
 	
 	setting_helper.initialize()
 
@@ -194,11 +192,9 @@ func _get_plugins() -> Array[EditorCodeCompletion]:
 		member_string,
 		alias_completion,
 		new_ins,
-<<<<<<< HEAD
 		arr_struct,
-=======
+		
 		native_completion,
->>>>>>> bdd5b5d (add native completeion for gdscript-lsp)
 		]
 
 func register_tag(prefix:String, tag:String, location:TagLocation=TagLocation.ANY):
