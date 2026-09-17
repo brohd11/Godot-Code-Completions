@@ -12,7 +12,7 @@ const UString = UtilsRemote.UString
 const CacheHelper = UtilsRemote.CacheHelper
 
 const EditorGDScriptParser = UtilsRemote.EditorGDScriptParser
-const CaretContext = EditorGDScriptParser.GDScriptParser.CaretContext
+const CaretContext = GDScriptParser.CaretContext
 const SettingHelperEditor = UtilsRemote.SettingHelperEditor
 
 #^ defaults
@@ -103,7 +103,7 @@ enum ScriptCache {
 var code_completions:Dictionary = {}
 var _sort_queued:= false
 
-var _editor_gdscript_parser:EditorGDScriptParser.GDScriptParser
+var _editor_gdscript_parser:GDScriptParser
 var _caret_context:CaretContext
 
 #var global_script_constant_map = {}

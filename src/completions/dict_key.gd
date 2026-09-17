@@ -450,7 +450,7 @@ func meta_dict(params:={}):
 
 #! keys i-meta_dict;
 func check_expression_for_meta(expression:String, line:int=-1):
-	var editor_parser:EditorGDScriptParser.GDScriptParser = EditorGDScriptParser.get_parser()
+	var editor_parser:GDScriptParser = EditorGDScriptParser.get_parser()
 	if not is_instance_valid(editor_parser):
 		return {}
 
@@ -565,7 +565,7 @@ func get_meta_for_type(type_origin_string:String):
 	var next_parser_data = parser.get_parser_and_class_obj_for_script(type_origin_string)
 	if not next_parser_data:
 		return
-	parser = next_parser_data.parser as EditorGDScriptParser.GDScriptParser
+	parser = next_parser_data.parser as GDScriptParser
 	var class_obj = next_parser_data.class_obj
 	
 	var member_meta = metadata.get(TAG)

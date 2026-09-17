@@ -16,7 +16,6 @@ const ParserKeys = GDScriptParser.Keys
 const TokenState = CaretContext.TokenState
 const ExpressionState = CaretContext.ExpressionState
 const EditorGDScriptParser = UtilsRemote.EditorGDScriptParser
-const GDScriptParser = EditorGDScriptParser.GDScriptParser
 const CaretContext = GDScriptParser.CaretContext
 const ScopeState = CaretContext.ScopeState
 

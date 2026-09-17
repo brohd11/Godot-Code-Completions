@@ -4,7 +4,6 @@ const UtilsRemote = EditorCodeCompletionSingleton.UtilsRemote
 const UClassDetail = UtilsRemote.UClassDetail
 const EditorColors = UtilsRemote.EditorColors
 const EditorGDScriptParser = UtilsRemote.EditorGDScriptParser
-const GDScriptParser = EditorGDScriptParser.GDScriptParser
 
 const AliasCompletion = EditorCodeCompletionSingleton.AliasCompletion
 const PLACEHOLDER = AliasCompletion.PLACEHOLDER
