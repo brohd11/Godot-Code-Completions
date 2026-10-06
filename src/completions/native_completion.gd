@@ -24,8 +24,8 @@ var member_strings_prefer_string_name := true
 var member_strings_include_private := false
 
 var _service: Object
-const SERVICE_PATH := "res://addons/addon_lib/gdscript_lsp/service.gd"
-const MANAGER_PATH := "res://addons/addon_lib/gdscript_lsp/code_edit_manager.gd"
+const SERVICE_PATH := "res://addons/_lib/gdscript_lsp/service.gd"
+const MANAGER_PATH := "res://addons/_lib/gdscript_lsp/code_edit_manager.gd"
 var _owner: Node
 var _managers: Dictionary = {}
 
