@@ -2,7 +2,6 @@ extends EditorCodeCompletion
 
 const PRINT_DEBUG = false
 
-const SettingHelper = UtilsRemote.SettingHelperEditor
 const TagParser = UtilsRemote.TagParser
 
 const PREFIX = &"#!"
@@ -14,7 +13,6 @@ const MODIFIERS = ["clean", "sort"]
 
 const DICT_FUNCS_TO_SHOW = ["get", "erase", "get_or_add", "has"]
 
-#var _setting_helper:SettingHelper
 var _enable:bool = true
 var _prefer_lua_style:bool = false
 var _prefer_string_name:bool = true
