@@ -32,5 +32,5 @@ options:
     parse_tres: {}
     parse_tscn: {}
 plugin_folder: "CodeCompletions{{version=code_completions}}"
-post_script: "res://addons/code_completions/export_ignore/pre_post_export.gd"
-pre_script: "res://addons/code_completions/export_ignore/pre_post_export.gd"
+post_script: ""
+pre_script: ""

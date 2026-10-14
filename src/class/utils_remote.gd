@@ -11,5 +11,5 @@ const UNode = preload("uid://dsywt12xnn7oh") #! resolve ALibRuntime.Utils.UNode
 const EditorColors = preload("uid://cpw0fsrs38esk") #! resolve UtilE.Colors
 const EditorGDScriptParser = preload("uid://t2dewmuth0sy") #! resolve EditorParser.EditorGDScriptParser
 
-const CacheHelper = preload("res://addons/_lib/brohd/alib_runtime/cache_helper/cache_helper.gd")
+const CacheHelper = preload("res://addons/_lib/brohd/src/alib_runtime/cache_helper/cache_helper.gd")
 const SettingHelperEditor = preload("uid://dnov6vp7pjnbb") #! resolve SettingHelper.Editor
