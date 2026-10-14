@@ -10,6 +10,7 @@ const PRINT_DEBUG = false
 
 const TagParser = UtilsRemote.TagParser
 const HidePrivateCompletion = EditorCodeCompletionSingleton.HidePrivateCompletion
+const Token = UtilsRemote.Token
 
 const PREFIX = &"#!"
 const TAG = &"arr_struct"
@@ -509,7 +510,7 @@ func _syntax_highlighting(_script_editor:CodeEdit, current_line_text:String, lin
 
 	var prefix_end = SyntaxPlusSingleton.HLInfo.get_tag_end_index(PREFIX, TAG, comment_text)
 	var stripped_comment = comment_text.substr(prefix_end)
-	var tokens = UString.Token.tokenize_string(stripped_comment).get("tokens")
+	var tokens = Token.tokenize_string(stripped_comment).get("tokens")
 	var in_type_assign = false
 	var idx = 0
 	for t:String in tokens:

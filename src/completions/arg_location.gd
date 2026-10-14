@@ -1,6 +1,7 @@
 extends EditorCodeCompletion
 
 const TagParser = UtilsRemote.TagParser
+const Token = UtilsRemote.Token
 
 const HLInfo = preload("uid://cfbf3hc1q2j3f") #! resolve SyntaxPlusSingleton.HLInfo
 
@@ -235,7 +236,7 @@ func _syntax_highlighting(_script_editor:CodeEdit, current_line_text:String, lin
 	var tags_in_line = _get_tags_in_line(full_stripped)
 	var completed_tags = []
 	
-	var tokenized = UString.Token.tokenize_string(full_stripped)
+	var tokenized = Token.tokenize_string(full_stripped)
 	var tokens = tokenized.tokens
 	var in_arg = false
 	

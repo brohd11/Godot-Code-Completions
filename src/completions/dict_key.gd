@@ -3,6 +3,7 @@ extends EditorCodeCompletion
 const PRINT_DEBUG = false
 
 const TagParser = UtilsRemote.TagParser
+const Token = UtilsRemote.Token
 
 const PREFIX = &"#!"
 const TAG = &"keys"
@@ -41,7 +42,7 @@ func parse_tag(raw_tags:Dictionary) -> Dictionary:
 	for string in mods_string.split(" "):
 		mod_data.append(string)
 	
-	var tokens = UString.Token.tokenize_string(args_string).get("tokens")
+	var tokens = Token.tokenize_string(args_string).get("tokens")
 	var in_type_assign = false
 	
 	var keys = {}
@@ -292,7 +293,7 @@ func _add_dict_key_completions(_meta_dict:Dictionary):
 		var tightest_close = caret_context.code_context_string_map.bracket_map[tightest_open]
 		tightest_open += 1
 		var dict = caret_context.code_context.substr(tightest_open, tightest_close - tightest_open).strip_edges()
-		var tokens = UString.Token.tokenize_string(dict).get("tokens")
+		var tokens = Token.tokenize_string(dict).get("tokens")
 		var in_assign = false
 		for t in tokens:
 			if t == ":" or t == "=":
@@ -663,7 +664,7 @@ func _syntax_highlighting(_script_editor:CodeEdit, current_line_text:String, lin
 	
 	var sp_ins = SyntaxPlusSingleton.get_instance()
 	var stripped_comment = comment_text.substr(prefix_end)
-	var tokens = UString.Token.tokenize_string(stripped_comment).get("tokens")
+	var tokens = Token.tokenize_string(stripped_comment).get("tokens")
 	var has_arg_delim = stripped_comment.contains(";")
 	var in_args = has_arg_delim
 	var in_inh_statement:=false
