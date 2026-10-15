@@ -9,7 +9,7 @@ const UTexture = preload("uid://cp6d2gyih02s2") #! resolve UtilR.Resources.UText
 const UNode = preload("uid://bnf4h0107r8b4") #! resolve UtilR.UNode
 const CacheHelper = preload("uid://c70cjcnys60ud") #! resolve UtilR.Files.CacheHelper
 
-const USort = preload("uid://dtrbpu04wxss0") #! resolve ALibRuntime.Utils.USort
+const USort = preload("uid://dtrbpu04wxss0") #! resolve UtilR.Collections.USort
 
 const EditorColors = preload("uid://cpw0fsrs38esk") #! resolve UtilE.Colors
 const EditorGDScriptParser = preload("uid://t2dewmuth0sy") #! resolve EditorParser.EditorGDScriptParser
