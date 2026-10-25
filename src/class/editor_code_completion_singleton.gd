@@ -3,6 +3,8 @@ extends Singletons.RefCount
 #! import_p UString,UClassDetail,
 
 const PE_STRIP_CAST_SCRIPT = preload("res://addons/code_completions/src/class/editor_code_completion_singleton.gd")
+## For plugins that extend it without naming the global, see namespace's runtime_extend.gd.
+const EditorCodeCompletion = preload("res://addons/code_completions/src/class/editor_code_completion.gd")
 
 const UtilsRemote = preload("res://addons/code_completions/src/class/utils_remote.gd")
 
