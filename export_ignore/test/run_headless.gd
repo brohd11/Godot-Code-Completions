@@ -5,6 +5,7 @@ extends SceneTree
 const SUITES:PackedStringArray = [
 	"res://addons/code_completions/export_ignore/test/alias_completion_test.gd",
 	"res://addons/code_completions/export_ignore/test/arr_struct_test.gd",
+	"res://addons/code_completions/export_ignore/test/unicode_completion_test.gd",
 ]
 
 func _init() -> void:

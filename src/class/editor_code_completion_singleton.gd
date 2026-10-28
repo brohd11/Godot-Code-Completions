@@ -32,6 +32,7 @@ const MemberString = preload("res://addons/code_completions/src/completions/memb
 const AliasCompletion = preload("res://addons/code_completions/src/completions/alias_completion.gd")
 const NewIns = preload("res://addons/code_completions/src/completions/new_ins.gd")
 const ArrStruct = preload("res://addons/code_completions/src/completions/arr_struct.gd")
+const UnicodeCompletion = preload("res://addons/code_completions/src/completions/unicode_completion.gd")
 
 var enum_completion:EnumCompletion
 var import_code_completion:ImportCodeCompletion
@@ -48,6 +49,7 @@ var alias_completion:AliasCompletion
 var new_ins:NewIns
 
 var arr_struct:ArrStruct
+var unicode_completion:UnicodeCompletion
 var native_completion:EditorCodeCompletion
 
 const TF = preload("uid://ft7o6vspsurv") #! resolve ALibRuntime.Utils.UProfile.TimeFunction #TODO erase
@@ -161,6 +163,7 @@ func _init_plugins() -> void:
 	alias_completion = AliasCompletion.new()
 	new_ins = NewIns.new()
 	arr_struct = ArrStruct.new()
+	unicode_completion = UnicodeCompletion.new()
 	
 	# optional completion
 	native_completion = load("res://addons/code_completions/src/completions/native_completion.gd").new()
@@ -181,6 +184,7 @@ func _free_plugins() -> void:
 
 func _get_plugins() -> Array[EditorCodeCompletion]:
 	return [
+		unicode_completion,
 		hide_private_completion,
 		enum_completion,
 		import_code_completion,
